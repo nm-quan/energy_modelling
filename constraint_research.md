@@ -182,15 +182,23 @@ hydro .053, coal .008, steam .036, ocgt .034, batt_chg .249, batt_dis .270) —
 the bar every hist-trained model must beat; harder than last365's 0.0956 almost
 entirely via the batteries (bigger fleet + record summer in test). Two metric
 findings from the actuals row, both harness TODOs:
-1. The 2026 actuals THEMSELVES contain 60,391 negative cells (min -7 MW,
-   station-load readings while units are off) vs 83 in last365 — n_neg needs a
-   tolerance (e.g. < -10 MW) or must always be read against the actuals row.
+1. RESOLVED: the 2026 actuals contained 60,391 negative cells (min -7 MW,
+   station-load readings on idle units). Fix (user decision): clip hist targets
+   >= 0 in build_table (net_demand computed after -> identity exact; last365
+   frozen raw) + box_tol=0.1 MW noise floor in constraint_report (float32
+   scaler round trips turn exact zeros into +-1e-4 MW). Result: actuals AND
+   persistence n_neg = 0, WAPE unchanged.
 2. **SOC feasibility over the 6-month hist test window fails even for the
    ACTUALS** (swing 115% of nameplate): eta_rt was calibrated on last365 and
    small eta/capacity errors accumulate over 52k steps. SOC must move to
    per-day/per-week segment windows + era-recalibrated eta before hist SOC
    numbers mean anything (metric-design insight now mandatory, was #7 in the
    pre-registration discussion).
+3. **Era caps**: actuals exceed the last365-era CONSTRAINT.md caps on 46 cells
+   in the 2026 test window (new records: Jan peak, Jun winter). Harness needs
+   caps recomputed from the training era (with the time-varying-caps handling
+   the 5.6x battery growth already requires); until then 46 is the actuals-row
+   floor for n_cap on hist.
 
 ## Conventions
 
