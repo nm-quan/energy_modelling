@@ -176,6 +176,22 @@ crisis, Jan 2024 + 2025 price-cap events, Jan 2026 record demand (10,784 MW).
   this bias; needs an offset calibration (or anchor to dispatch-sum-consistent
   signals) before hist scenario sims.
 
+**Hist baselines (stage0_hist rows, 2026-07-06)**: persistence on the hist test
+set (Jan-Jul 2026, 53,568 windows) = **WAPE 0.1084**, R2 0.9669 (per-target:
+hydro .053, coal .008, steam .036, ocgt .034, batt_chg .249, batt_dis .270) —
+the bar every hist-trained model must beat; harder than last365's 0.0956 almost
+entirely via the batteries (bigger fleet + record summer in test). Two metric
+findings from the actuals row, both harness TODOs:
+1. The 2026 actuals THEMSELVES contain 60,391 negative cells (min -7 MW,
+   station-load readings while units are off) vs 83 in last365 — n_neg needs a
+   tolerance (e.g. < -10 MW) or must always be read against the actuals row.
+2. **SOC feasibility over the 6-month hist test window fails even for the
+   ACTUALS** (swing 115% of nameplate): eta_rt was calibrated on last365 and
+   small eta/capacity errors accumulate over 52k steps. SOC must move to
+   per-day/per-week segment windows + era-recalibrated eta before hist SOC
+   numbers mean anything (metric-design insight now mandatory, was #7 in the
+   pre-registration discussion).
+
 ## Conventions
 
 - Scripts: `constraints/stage<N>_<what>.py`; one JSON per run in
