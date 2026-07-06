@@ -1,0 +1,117 @@
+device: mps
+train windows 82080 -> 6840 (stride 12)
+  training LSTM +RevIN (lstm_revin) ...
+    revin  epoch 01  val_mse=0.20376
+    revin  epoch 02  val_mse=0.11543
+    revin  epoch 03  val_mse=0.08812
+    revin  epoch 04  val_mse=0.07305
+    revin  epoch 05  val_mse=0.06540
+    revin  epoch 06  val_mse=0.05894
+    revin  epoch 07  val_mse=0.05541
+    revin  epoch 08  val_mse=0.05308
+    revin  epoch 09  val_mse=0.05169
+    revin  epoch 10  val_mse=0.05026
+    revin  epoch 11  val_mse=0.05080
+    revin  epoch 12  val_mse=0.04821
+    revin  epoch 13  val_mse=0.04862
+    revin  epoch 14  val_mse=0.04710
+    revin  epoch 15  val_mse=0.04646
+    revin  epoch 16  val_mse=0.04732
+    revin  epoch 17  val_mse=0.04612
+    revin  epoch 18  val_mse=0.04680
+    revin  epoch 19  val_mse=0.04619
+    revin  epoch 20  val_mse=0.04550
+    revin  epoch 21  val_mse=0.04508
+    revin  epoch 22  val_mse=0.04523
+    revin  epoch 23  val_mse=0.04571
+    revin  epoch 24  val_mse=0.04488
+    revin  epoch 25  val_mse=0.04537
+    revin  epoch 26  val_mse=0.04678
+    revin  epoch 27  val_mse=0.04539
+    revin  epoch 28  val_mse=0.04544
+/Users/nguyenminhquan/Downloads/energy_modelling/lib/sim_common.py:54: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:212.)
+  xb = torch.from_numpy(Xw[i:i + batch]).to(device)
+  LSTM +RevIN      R2=0.9418 WAPE=0.2411 net_demand=+21.2% batt_dis=+40.2% sens=0.0%  (199s, ep29)
+
+  training Dish-TS own (lstm_dishts) ...
+    own    epoch 01  val_mse=0.26535
+    own    epoch 02  val_mse=0.13885
+    own    epoch 03  val_mse=0.09666
+    own    epoch 04  val_mse=0.08014
+    own    epoch 05  val_mse=0.06685
+    own    epoch 06  val_mse=0.05960
+    own    epoch 07  val_mse=0.07671
+    own    epoch 08  val_mse=0.05041
+    own    epoch 09  val_mse=0.04690
+    own    epoch 10  val_mse=0.04629
+    own    epoch 11  val_mse=0.05639
+    own    epoch 12  val_mse=0.04494
+    own    epoch 13  val_mse=0.04507
+    own    epoch 14  val_mse=0.08123
+    own    epoch 15  val_mse=0.04192
+    own    epoch 16  val_mse=0.04093
+    own    epoch 17  val_mse=0.12909
+    own    epoch 18  val_mse=0.04674
+    own    epoch 19  val_mse=0.04709
+    own    epoch 20  val_mse=0.04450
+  Dish-TS own      R2=0.9516 WAPE=0.2880 net_demand=+17.7% batt_dis=+119.3% sens=0.0%  (150s, ep21)
+
+  training Dish-TS cross (lstm_dishtsx) ...
+    cross  epoch 01  val_mse=0.10670
+    cross  epoch 02  val_mse=0.09773
+    cross  epoch 03  val_mse=0.08743
+    cross  epoch 04  val_mse=0.07512
+    cross  epoch 05  val_mse=0.06496
+    cross  epoch 06  val_mse=0.06150
+    cross  epoch 07  val_mse=0.07065
+    cross  epoch 08  val_mse=0.05171
+    cross  epoch 09  val_mse=0.05046
+    cross  epoch 10  val_mse=0.04679
+    cross  epoch 11  val_mse=0.05910
+    cross  epoch 12  val_mse=0.04712
+    cross  epoch 13  val_mse=0.04668
+    cross  epoch 14  val_mse=0.07632
+    cross  epoch 15  val_mse=0.04484
+    cross  epoch 16  val_mse=0.04537
+    cross  epoch 17  val_mse=0.10922
+    cross  epoch 18  val_mse=0.04474
+    cross  epoch 19  val_mse=0.04882
+    cross  epoch 20  val_mse=0.04828
+    cross  epoch 21  val_mse=0.06493
+    cross  epoch 22  val_mse=0.07286
+  Dish-TS cross    R2=0.9418 WAPE=0.2916 net_demand=+3.5% batt_dis=+14.5% sens=0.0%  (166s, ep23)
+
+  training Dish-TS exo (lstm_dishtsd) ...
+    exo    epoch 01  val_mse=0.64347
+    exo    epoch 02  val_mse=0.36103
+    exo    epoch 03  val_mse=0.30245
+    exo    epoch 04  val_mse=0.27824
+    exo    epoch 05  val_mse=0.24500
+    exo    epoch 06  val_mse=0.24351
+    exo    epoch 07  val_mse=0.27392
+    exo    epoch 08  val_mse=0.21680
+    exo    epoch 09  val_mse=0.21149
+    exo    epoch 10  val_mse=0.20151
+    exo    epoch 11  val_mse=0.21702
+    exo    epoch 12  val_mse=0.19922
+    exo    epoch 13  val_mse=0.19675
+    exo    epoch 14  val_mse=0.25851
+    exo    epoch 15  val_mse=0.18230
+    exo    epoch 16  val_mse=0.17343
+    exo    epoch 17  val_mse=0.50138
+    exo    epoch 18  val_mse=0.17513
+    exo    epoch 19  val_mse=0.18761
+    exo    epoch 20  val_mse=0.17394
+  Dish-TS exo      R2=0.5633 WAPE=2.0827 net_demand=+34.5% batt_dis=+456.0% sens=0.0%  (180s, ep21)
+
+# Dish-TS vs RevIN (learned horizon level, MPS, plain MSE)
+
+stride 12, 6840 train windows, early-stop patience 5, demand input +101%
+
+| model | R2 | WAPE | net_demand_resp | coal_resp | batt_dis_resp | demand_sens | epochs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| LSTM +RevIN | 0.9418 | 0.2411 | +21.2% | +13.0% | +40.2% | 0.0% | 29 |
+| Dish-TS own | 0.9516 | 0.2880 | +17.7% | +11.3% | +119.3% | 0.0% | 21 |
+| Dish-TS cross | 0.9418 | 0.2916 | +3.5% | +1.3% | +14.5% | 0.0% | 23 |
+| Dish-TS exo | 0.5633 | 2.0827 | +34.5% | +21.6% | +456.0% | 0.0% | 21 |
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/demand_simulation/sweep_eqnd/dishts_compare.md

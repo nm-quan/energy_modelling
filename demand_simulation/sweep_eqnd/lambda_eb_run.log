@@ -1,0 +1,185 @@
+device: mps
+train windows 82080 -> 6840 (stride 12)
+nd_scale (MW) = 1367
+  training lambda=0 ...
+    lam=0     epoch 01  val_mse=0.20924
+    lam=0     epoch 02  val_mse=0.11844
+    lam=0     epoch 03  val_mse=0.08962
+    lam=0     epoch 04  val_mse=0.07431
+    lam=0     epoch 05  val_mse=0.06641
+    lam=0     epoch 06  val_mse=0.05931
+    lam=0     epoch 07  val_mse=0.05600
+    lam=0     epoch 08  val_mse=0.05338
+    lam=0     epoch 09  val_mse=0.05245
+    lam=0     epoch 10  val_mse=0.05074
+    lam=0     epoch 11  val_mse=0.05088
+    lam=0     epoch 12  val_mse=0.04861
+    lam=0     epoch 13  val_mse=0.04891
+    lam=0     epoch 14  val_mse=0.04741
+    lam=0     epoch 15  val_mse=0.04688
+    lam=0     epoch 16  val_mse=0.04810
+    lam=0     epoch 17  val_mse=0.04709
+    lam=0     epoch 18  val_mse=0.04706
+    lam=0     epoch 19  val_mse=0.04641
+    lam=0     epoch 20  val_mse=0.04599
+    lam=0     epoch 21  val_mse=0.04566
+    lam=0     epoch 22  val_mse=0.04596
+    lam=0     epoch 23  val_mse=0.04614
+    lam=0     epoch 24  val_mse=0.04578
+/Users/nguyenminhquan/Downloads/energy_modelling/lib/sim_common.py:54: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:212.)
+  xb = torch.from_numpy(Xw[i:i + batch]).to(device)
+  lambda=0     R2=0.9395 WAPE=0.2503 net_demand=+4.1% sens=0.0%  (211s, ep25)
+
+  training lambda=1 ...
+    lam=1     epoch 01  val_mse=0.23401
+    lam=1     epoch 02  val_mse=0.15504
+    lam=1     epoch 03  val_mse=0.10575
+    lam=1     epoch 04  val_mse=0.08382
+    lam=1     epoch 05  val_mse=0.07354
+    lam=1     epoch 06  val_mse=0.06557
+    lam=1     epoch 07  val_mse=0.06091
+    lam=1     epoch 08  val_mse=0.05830
+    lam=1     epoch 09  val_mse=0.05612
+    lam=1     epoch 10  val_mse=0.05472
+    lam=1     epoch 11  val_mse=0.05368
+    lam=1     epoch 12  val_mse=0.05159
+    lam=1     epoch 13  val_mse=0.05224
+    lam=1     epoch 14  val_mse=0.05017
+    lam=1     epoch 15  val_mse=0.04928
+    lam=1     epoch 16  val_mse=0.05059
+    lam=1     epoch 17  val_mse=0.04929
+    lam=1     epoch 18  val_mse=0.04932
+    lam=1     epoch 19  val_mse=0.04827
+    lam=1     epoch 20  val_mse=0.04785
+    lam=1     epoch 21  val_mse=0.04745
+    lam=1     epoch 22  val_mse=0.04761
+    lam=1     epoch 23  val_mse=0.04794
+    lam=1     epoch 24  val_mse=0.04725
+    lam=1     epoch 25  val_mse=0.04731
+  lambda=1     R2=0.9373 WAPE=0.2541 net_demand=+5.7% sens=0.0%  (234s, ep25)
+
+  training lambda=3 ...
+    lam=3     epoch 01  val_mse=0.26241
+    lam=3     epoch 02  val_mse=0.20136
+    lam=3     epoch 03  val_mse=0.14831
+    lam=3     epoch 04  val_mse=0.11144
+    lam=3     epoch 05  val_mse=0.09201
+    lam=3     epoch 06  val_mse=0.07926
+    lam=3     epoch 07  val_mse=0.07187
+    lam=3     epoch 08  val_mse=0.06736
+    lam=3     epoch 09  val_mse=0.06430
+    lam=3     epoch 10  val_mse=0.06197
+    lam=3     epoch 11  val_mse=0.05971
+    lam=3     epoch 12  val_mse=0.05768
+    lam=3     epoch 13  val_mse=0.05767
+    lam=3     epoch 14  val_mse=0.05542
+    lam=3     epoch 15  val_mse=0.05393
+    lam=3     epoch 16  val_mse=0.05461
+    lam=3     epoch 17  val_mse=0.05319
+    lam=3     epoch 18  val_mse=0.05283
+    lam=3     epoch 19  val_mse=0.05170
+    lam=3     epoch 20  val_mse=0.05174
+    lam=3     epoch 21  val_mse=0.05066
+    lam=3     epoch 22  val_mse=0.05045
+    lam=3     epoch 23  val_mse=0.05004
+    lam=3     epoch 24  val_mse=0.04952
+    lam=3     epoch 25  val_mse=0.04965
+  lambda=3     R2=0.9334 WAPE=0.2630 net_demand=+6.1% sens=0.0%  (239s, ep25)
+
+  training lambda=10 ...
+    lam=10    epoch 01  val_mse=0.28888
+    lam=10    epoch 02  val_mse=0.24528
+    lam=10    epoch 03  val_mse=0.21168
+    lam=10    epoch 04  val_mse=0.18344
+    lam=10    epoch 05  val_mse=0.15456
+    lam=10    epoch 06  val_mse=0.12970
+    lam=10    epoch 07  val_mse=0.11124
+    lam=10    epoch 08  val_mse=0.09794
+    lam=10    epoch 09  val_mse=0.08814
+    lam=10    epoch 10  val_mse=0.08106
+    lam=10    epoch 11  val_mse=0.07653
+    lam=10    epoch 12  val_mse=0.07345
+    lam=10    epoch 13  val_mse=0.07067
+    lam=10    epoch 14  val_mse=0.06824
+    lam=10    epoch 15  val_mse=0.06554
+    lam=10    epoch 16  val_mse=0.06480
+    lam=10    epoch 17  val_mse=0.06294
+    lam=10    epoch 18  val_mse=0.06206
+    lam=10    epoch 19  val_mse=0.06100
+    lam=10    epoch 20  val_mse=0.06152
+    lam=10    epoch 21  val_mse=0.05961
+    lam=10    epoch 22  val_mse=0.05869
+    lam=10    epoch 23  val_mse=0.05745
+    lam=10    epoch 24  val_mse=0.05672
+    lam=10    epoch 25  val_mse=0.05710
+  lambda=10    R2=0.9190 WAPE=0.2964 net_demand=+7.9% sens=0.0%  (249s, ep25)
+
+  training lambda=30 ...
+    lam=30    epoch 01  val_mse=0.30131
+    lam=30    epoch 02  val_mse=0.27161
+    lam=30    epoch 03  val_mse=0.24615
+    lam=30    epoch 04  val_mse=0.22717
+    lam=30    epoch 05  val_mse=0.20976
+    lam=30    epoch 06  val_mse=0.19249
+    lam=30    epoch 07  val_mse=0.18030
+    lam=30    epoch 08  val_mse=0.16386
+    lam=30    epoch 09  val_mse=0.15001
+    lam=30    epoch 10  val_mse=0.13651
+    lam=30    epoch 11  val_mse=0.12515
+    lam=30    epoch 12  val_mse=0.11513
+    lam=30    epoch 13  val_mse=0.10613
+    lam=30    epoch 14  val_mse=0.09960
+    lam=30    epoch 15  val_mse=0.09349
+    lam=30    epoch 16  val_mse=0.08853
+    lam=30    epoch 17  val_mse=0.08490
+    lam=30    epoch 18  val_mse=0.08094
+    lam=30    epoch 19  val_mse=0.07900
+    lam=30    epoch 20  val_mse=0.07753
+    lam=30    epoch 21  val_mse=0.07479
+    lam=30    epoch 22  val_mse=0.07346
+    lam=30    epoch 23  val_mse=0.07137
+    lam=30    epoch 24  val_mse=0.06989
+    lam=30    epoch 25  val_mse=0.06991
+  lambda=30    R2=0.8903 WAPE=0.3544 net_demand=+10.8% sens=0.0%  (219s, ep25)
+
+  training lambda=100 ...
+    lam=100   epoch 01  val_mse=0.30658
+    lam=100   epoch 02  val_mse=0.28462
+    lam=100   epoch 03  val_mse=0.26696
+    lam=100   epoch 04  val_mse=0.25337
+    lam=100   epoch 05  val_mse=0.24205
+    lam=100   epoch 06  val_mse=0.23055
+    lam=100   epoch 07  val_mse=0.22467
+    lam=100   epoch 08  val_mse=0.21457
+    lam=100   epoch 09  val_mse=0.20624
+    lam=100   epoch 10  val_mse=0.19755
+    lam=100   epoch 11  val_mse=0.18769
+    lam=100   epoch 12  val_mse=0.17957
+    lam=100   epoch 13  val_mse=0.17029
+    lam=100   epoch 14  val_mse=0.16311
+    lam=100   epoch 15  val_mse=0.15347
+    lam=100   epoch 16  val_mse=0.14524
+    lam=100   epoch 17  val_mse=0.13929
+    lam=100   epoch 18  val_mse=0.13307
+    lam=100   epoch 19  val_mse=0.12745
+    lam=100   epoch 20  val_mse=0.12405
+    lam=100   epoch 21  val_mse=0.11818
+    lam=100   epoch 22  val_mse=0.11290
+    lam=100   epoch 23  val_mse=0.10821
+    lam=100   epoch 24  val_mse=0.10414
+    lam=100   epoch 25  val_mse=0.10244
+  lambda=100   R2=0.8241 WAPE=0.4655 net_demand=+11.7% sens=0.0%  (212s, ep25)
+
+# Energy-balance lambda sweep (lstm_selrevin + EB loss, MPS)
+
+stride 12, 6840 train windows, early-stop patience 4, demand input +101%
+
+| lambda | R2 | WAPE | net_demand_resp | coal_resp | batt_dis_resp | demand_sens | epochs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0.9395 | 0.2503 | +4.1% | +2.4% | +24.3% | 0.0% | 25 |
+| 1 | 0.9373 | 0.2541 | +5.7% | +2.5% | +49.9% | 0.0% | 25 |
+| 3 | 0.9334 | 0.2630 | +6.1% | +3.1% | +41.5% | 0.0% | 25 |
+| 10 | 0.9190 | 0.2964 | +7.9% | +3.4% | +109.5% | 0.0% | 25 |
+| 30 | 0.8903 | 0.3544 | +10.8% | +3.5% | +193.1% | 0.0% | 25 |
+| 100 | 0.8241 | 0.4655 | +11.7% | +3.8% | +226.2% | 0.0% | 25 |
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/demand_simulation/sweep_eqnd/lambda_eb_sweep.md

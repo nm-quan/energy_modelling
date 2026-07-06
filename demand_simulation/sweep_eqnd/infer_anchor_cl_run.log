@@ -1,0 +1,19 @@
+/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/torch/nn/modules/transformer.py:307: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+device: cpu
+free-window demand-side nd input: +173.9%
+  lstm_5min_mse (prod)   cl_WAPE=0.4971 cl_R2=0.4240 |track| p50=143 p95=378 MW nd_resp=+134.7%  (193s)
+  itransformer (bare)    cl_WAPE=0.6688 cl_R2=0.4797 |track| p50=341 p95=1084 MW nd_resp=+0.8%  (12s)
+  itransformer+anchor    cl_WAPE=0.7015 cl_R2=0.4270 |track| p50=70 p95=222 MW nd_resp=+179.2%  (13s)
+  lstm_revin+anchor      cl_WAPE=0.7812 cl_R2=-0.0824 |track| p50=70 p95=222 MW nd_resp=+179.2%  (252s)
+# Closed-loop (ar_free_rollout nd_mode=scenario) anchored vs bare
+
+reb20/red10, demand-side net_demand, free window 11:00-14:00. cl_WAPE/cl_R2 = base-rollout accuracy vs actuals over the response region; track = |sum(SIGN*pred) - nd input| there.
+
+| model | cl_WAPE | cl_R2 | track p50 MW | track p95 MW | nd_resp | coal_resp | hydro_resp | ocgt_resp | batt_dis_resp |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| lstm_5min_mse (prod) | 0.4971 | 0.4240 | 143 | 378 | +134.7% | +75.3% | +1504.8% | +45.3% | +7057.5% |
+| itransformer (bare) | 0.6688 | 0.4797 | 341 | 1084 | +0.8% | +0.7% | +12.3% | -18.0% | +0.8% |
+| itransformer+anchor | 0.7015 | 0.4270 | 70 | 222 | +179.2% | +156.1% | +118.3% | +113.3% | +20.6% |
+| lstm_revin+anchor | 0.7812 | -0.0824 | 70 | 222 | +179.2% | +144.7% | +182.2% | +57.1% | +1676.5% |
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/demand_simulation/sweep_eqnd/infer_anchor_cl_compare.md

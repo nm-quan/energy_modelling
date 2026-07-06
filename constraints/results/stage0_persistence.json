@@ -1,0 +1,27 @@
+{
+  "model": "persistence",
+  "WAPE": 0.09561529657188134,
+  "R2": 0.9748310878528388,
+  "n": 10656,
+  "n_neg": 83,
+  "n_cap": 0,
+  "n_ramp": 0,
+  "n_demand_in": 0,
+  "mismatch_in_pct": 2.6825687631598227e-06,
+  "n_demand_act": 9489,
+  "mismatch_act_pct": 1.8092371091392785,
+  "soc_swing_pct": 87.09715824352847,
+  "soc_feasible": true,
+  "soc0_window_pct": [
+    44.082776793655796,
+    56.98561855012734
+  ],
+  "per_target_WAPE": {
+    "hydro": 0.050586321626239744,
+    "coal_brown": 0.007162812436129347,
+    "gas_steam": 0.03861728742295407,
+    "gas_ocgt": 0.033182425176139105,
+    "battery_charging": 0.21408443702875926,
+    "battery_discharging": 0.23005851718333484
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "model": "lstm_revin+clamp",
+  "WAPE": 0.11852129257648379,
+  "R2": 0.9748412948219253,
+  "n": 10656,
+  "n_neg": 0,
+  "n_cap": 0,
+  "n_ramp": 1,
+  "n_demand_in": 8924,
+  "mismatch_in_pct": 1.0911475567466824,
+  "n_demand_act": 9613,
+  "mismatch_act_pct": 1.838901479814071,
+  "soc_swing_pct": 112.25061811363948,
+  "soc_feasible": false,
+  "soc0_window_pct": null
+}

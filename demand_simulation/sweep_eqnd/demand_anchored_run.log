@@ -1,0 +1,76 @@
+device: mps
+train windows 82080 -> 6840 (stride 12)
+free-window demand input: +101.2%
+  training lstm_demandhead (base=lstm) ...
+    epoch 01  val_mse=0.22679
+    epoch 02  val_mse=0.10063
+    epoch 03  val_mse=0.07082
+    epoch 04  val_mse=0.05886
+    epoch 05  val_mse=0.05214
+    epoch 06  val_mse=0.04892
+    epoch 07  val_mse=0.04565
+    epoch 08  val_mse=0.04515
+    epoch 09  val_mse=0.04272
+    epoch 10  val_mse=0.04148
+    epoch 11  val_mse=0.04070
+    epoch 12  val_mse=0.04000
+    epoch 13  val_mse=0.04059
+    epoch 14  val_mse=0.03945
+    epoch 15  val_mse=0.03875
+    epoch 16  val_mse=0.03939
+    epoch 17  val_mse=0.03926
+    epoch 18  val_mse=0.03910
+    epoch 19  val_mse=0.03901
+    epoch 20  val_mse=0.03863
+    epoch 21  val_mse=0.03900
+    epoch 22  val_mse=0.03921
+    epoch 23  val_mse=0.03860
+    epoch 24  val_mse=0.03836
+    epoch 25  val_mse=0.03994
+    epoch 26  val_mse=0.03901
+    epoch 27  val_mse=0.03962
+    epoch 28  val_mse=0.04006
+/Users/nguyenminhquan/Downloads/energy_modelling/lib/sim_common.py:54: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:212.)
+  xb = torch.from_numpy(Xw[i:i + batch]).to(device)
+  lstm_demandhead          R2=0.9320 WAPE=0.2336 net_demand=+179.2% coal=+136.5% hydro=+547.0% gas_ocgt=+260.2% batt_dis=+684.4% batt_chg=-13.7% (248s, ep29)
+
+  training lstm_revin_demandhead (base=lstm_revin) ...
+    epoch 01  val_mse=0.16305
+    epoch 02  val_mse=0.09533
+    epoch 03  val_mse=0.07477
+    epoch 04  val_mse=0.06246
+    epoch 05  val_mse=0.05613
+    epoch 06  val_mse=0.05081
+    epoch 07  val_mse=0.04781
+    epoch 08  val_mse=0.04698
+    epoch 09  val_mse=0.04545
+    epoch 10  val_mse=0.04383
+    epoch 11  val_mse=0.04440
+    epoch 12  val_mse=0.04191
+    epoch 13  val_mse=0.04260
+    epoch 14  val_mse=0.04111
+    epoch 15  val_mse=0.04061
+    epoch 16  val_mse=0.04110
+    epoch 17  val_mse=0.03994
+    epoch 18  val_mse=0.04043
+    epoch 19  val_mse=0.04013
+    epoch 20  val_mse=0.03993
+    epoch 21  val_mse=0.04002
+    epoch 22  val_mse=0.04014
+    epoch 23  val_mse=0.04045
+    epoch 24  val_mse=0.03945
+    epoch 25  val_mse=0.04034
+    epoch 26  val_mse=0.04108
+    epoch 27  val_mse=0.04033
+    epoch 28  val_mse=0.03979
+  lstm_revin_demandhead    R2=0.9499 WAPE=0.2186 net_demand=+179.2% coal=+141.7% hydro=+272.0% gas_ocgt=+133.7% batt_dis=+371.9% batt_chg=-18.5% (200s, ep29)
+
+# Demand-anchored head vs RevIN/Dish-TS/EB-loss (MPS, plain MSE)
+
+stride 12, 6840 train windows, early-stop patience 5, demand input +101.2%
+
+| model | R2 | WAPE | net_demand | coal | hydro | gas_ocgt | batt_dis | batt_chg | epochs | secs |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| lstm_demandhead | 0.9320 | 0.2336 | +179.2% | +136.5% | +547.0% | +260.2% | +684.4% | -13.7% | 29 | 248 |
+| lstm_revin_demandhead | 0.9499 | 0.2186 | +179.2% | +141.7% | +272.0% | +133.7% | +371.9% | -18.5% | 29 | 200 |
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/demand_simulation/sweep_eqnd/demand_anchored_compare.md

@@ -1,0 +1,19 @@
+{
+  "model": "lstm_5min_mse",
+  "WAPE": 0.202424249635225,
+  "R2": 0.9727110450021389,
+  "n": 10656,
+  "n_neg": 13267,
+  "n_cap": 0,
+  "n_ramp": 0,
+  "n_demand_in": 9105,
+  "mismatch_in_pct": 1.1748698350192917,
+  "n_demand_act": 9585,
+  "mismatch_act_pct": 1.8319388292809462,
+  "soc_swing_pct": 87.41955872129232,
+  "soc_feasible": true,
+  "soc0_window_pct": [
+    44.776142626665944,
+    57.35658390537361
+  ]
+}

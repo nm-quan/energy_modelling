@@ -1,0 +1,19 @@
+{
+  "model": "actuals",
+  "WAPE": 0.0,
+  "R2": 1.0,
+  "n": 10656,
+  "n_neg": 83,
+  "n_cap": 0,
+  "n_ramp": 0,
+  "n_demand_in": 9489,
+  "mismatch_in_pct": 1.80932988989366,
+  "n_demand_act": 0,
+  "mismatch_act_pct": 0.0,
+  "soc_swing_pct": 87.09716914709976,
+  "soc_feasible": true,
+  "soc0_window_pct": [
+    44.076846744956995,
+    56.97967759785724
+  ]
+}

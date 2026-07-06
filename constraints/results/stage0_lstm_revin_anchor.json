@@ -1,0 +1,16 @@
+{
+  "model": "lstm_revin+anchor",
+  "WAPE": 0.11879935013379506,
+  "R2": 0.9746113408470788,
+  "n": 10656,
+  "n_neg": 0,
+  "n_cap": 0,
+  "n_ramp": 0,
+  "n_demand_in": 0,
+  "mismatch_in_pct": 5.356168784190541e-06,
+  "n_demand_act": 9489,
+  "mismatch_act_pct": 1.8092370687203705,
+  "soc_swing_pct": 100.47614424246026,
+  "soc_feasible": false,
+  "soc0_window_pct": null
+}

@@ -1,0 +1,68 @@
+train windows 82080 -> 6840 (stride 12), threads=8
+training lstm_selrevin (early stop, patience 6)...
+  [lstm_selrevin] epoch 001  train_mse=0.69027  val_mse=0.47463
+  [lstm_selrevin] epoch 002  train_mse=0.44679  val_mse=0.26047
+  [lstm_selrevin] epoch 003  train_mse=0.29242  val_mse=0.20335
+  [lstm_selrevin] epoch 004  train_mse=0.23974  val_mse=0.16604
+  [lstm_selrevin] epoch 005  train_mse=0.19938  val_mse=0.13517
+  [lstm_selrevin] epoch 006  train_mse=0.17129  val_mse=0.11652
+  [lstm_selrevin] epoch 007  train_mse=0.14995  val_mse=0.10456
+  [lstm_selrevin] epoch 008  train_mse=0.13293  val_mse=0.09318
+  [lstm_selrevin] epoch 009  train_mse=0.11864  val_mse=0.08405
+  [lstm_selrevin] epoch 010  train_mse=0.10655  val_mse=0.07662
+  [lstm_selrevin] epoch 011  train_mse=0.09650  val_mse=0.07117
+  [lstm_selrevin] epoch 012  train_mse=0.08892  val_mse=0.06599
+  [lstm_selrevin] epoch 013  train_mse=0.08332  val_mse=0.06219
+  [lstm_selrevin] epoch 014  train_mse=0.07836  val_mse=0.05982
+  [lstm_selrevin] epoch 015  train_mse=0.07511  val_mse=0.05695
+  [lstm_selrevin] epoch 016  train_mse=0.07154  val_mse=0.05445
+  [lstm_selrevin] epoch 017  train_mse=0.06891  val_mse=0.05328
+  [lstm_selrevin] epoch 018  train_mse=0.06634  val_mse=0.05088
+  [lstm_selrevin] epoch 019  train_mse=0.06422  val_mse=0.04960
+  [lstm_selrevin] epoch 020  train_mse=0.06271  val_mse=0.04820
+  [lstm_selrevin] epoch 021  train_mse=0.06097  val_mse=0.04739
+  [lstm_selrevin] epoch 022  train_mse=0.05974  val_mse=0.04618
+  [lstm_selrevin] epoch 023  train_mse=0.05804  val_mse=0.04557
+  [lstm_selrevin] epoch 024  train_mse=0.05726  val_mse=0.04460
+  [lstm_selrevin] epoch 025  train_mse=0.05611  val_mse=0.04401
+  [lstm_selrevin] epoch 026  train_mse=0.05472  val_mse=0.04304
+  [lstm_selrevin] epoch 027  train_mse=0.05473  val_mse=0.04242
+  [lstm_selrevin] epoch 028  train_mse=0.05339  val_mse=0.04218
+  [lstm_selrevin] epoch 029  train_mse=0.05280  val_mse=0.04117
+  [lstm_selrevin] epoch 030  train_mse=0.05195  val_mse=0.04079
+  [lstm_selrevin] epoch 031  train_mse=0.05178  val_mse=0.04031
+  [lstm_selrevin] epoch 032  train_mse=0.05031  val_mse=0.04072
+  [lstm_selrevin] epoch 033  train_mse=0.05026  val_mse=0.03979
+  [lstm_selrevin] epoch 034  train_mse=0.04963  val_mse=0.04004
+  [lstm_selrevin] epoch 035  train_mse=0.04924  val_mse=0.03922
+  [lstm_selrevin] epoch 036  train_mse=0.04939  val_mse=0.03851
+  [lstm_selrevin] epoch 037  train_mse=0.04787  val_mse=0.03870
+  [lstm_selrevin] epoch 038  train_mse=0.04785  val_mse=0.03798
+  [lstm_selrevin] epoch 039  train_mse=0.04706  val_mse=0.03762
+  [lstm_selrevin] epoch 040  train_mse=0.04705  val_mse=0.03820
+saved -> /Users/nguyenminhquan/Downloads/energy_modelling/ml/lstm_selrevin_5min  (stopped epoch 40, best val_mse 0.03762)
+/Users/nguyenminhquan/Downloads/energy_modelling/lib/sim_common.py:89: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  model.load_state_dict(torch.load(ROOT / "ml" / name / f"{name}.pt", map_location=device))
+/Users/nguyenminhquan/Downloads/energy_modelling/demand_simulation/test_lstm_selrevin.py:97: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  revin.load_state_dict(torch.load(ROOT / "ml" / "lstm_revin_5min" / "lstm_revin_5min.pt",
+
+(1) test accuracy
+  model                       R2     MAE     WAPE
+  LSTM no-RevIN           0.9727    20.4   0.2024
+  LSTM +RevIN             0.9747    19.7   0.1252
+  LSTM selective-RevIN    0.9583    27.1   0.1807
+
+(2) one-step teacher-forced demand response, reb20%/red10% (free-window demand input +101%)
+  model                   net_demand     coal     hydro  gas_ocgt  batt_dis
+  -------------------------------------------------------------------------
+/Users/nguyenminhquan/Downloads/energy_modelling/lib/sim_common.py:54: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:212.)
+  xb = torch.from_numpy(Xw[i:i + batch]).to(device)
+  LSTM no-RevIN                62.1%    39.8%    441.1%    -12.6%    505.3%
+  LSTM +RevIN                   3.9%     1.7%     47.2%     -3.3%      8.3%
+  LSTM selective-RevIN          5.2%     2.4%     35.4%     -0.2%     92.1%
+
+(3) demand-channel input saliency (share of recent-window saliency)
+  model                   net_demand  demand_mw  demand total
+  LSTM no-RevIN                11.2%       2.8%         14.0%
+  LSTM +RevIN                   0.0%       0.0%          0.0%
+  LSTM selective-RevIN          0.0%       0.0%          0.0%

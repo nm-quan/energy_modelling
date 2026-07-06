@@ -1,0 +1,19 @@
+{
+  "model": "itransformer",
+  "WAPE": 0.11320737491596282,
+  "R2": 0.9765427906372164,
+  "n": 10656,
+  "n_neg": 19809,
+  "n_cap": 0,
+  "n_ramp": 0,
+  "n_demand_in": 8770,
+  "mismatch_in_pct": 0.960429098705027,
+  "n_demand_act": 9517,
+  "mismatch_act_pct": 1.743594219904729,
+  "soc_swing_pct": 85.07792567038165,
+  "soc_feasible": true,
+  "soc0_window_pct": [
+    43.21371876211775,
+    58.13579309173609
+  ]
+}

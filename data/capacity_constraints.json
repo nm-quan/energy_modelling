@@ -1,0 +1,97 @@
+{
+  "source": "OpenElectricity /v4/facilities + /v4/data storage_battery; power stats from data/vic_generation_last365.parquet; nameplate ramp from data/vic_generators_registry.parquet",
+  "region": "VIC1",
+  "pulled_at": "2026-05-26T17:58:31",
+  "window": {
+    "start": "2025-05-26T00:00:00",
+    "end": "2026-05-26T00:00:00"
+  },
+  "per_target": {
+    "hydro": {
+      "units_operating": 16,
+      "P_max_cap": 2402.5,
+      "P_max_reg": 2278.4,
+      "P_max_obs_1h": 1794.3829166666667,
+      "P_min_obs_1h": -1.83,
+      "ramp_up_obs_1h": 992.2246166666666,
+      "ramp_down_obs_1h": -910.2908333333332,
+      "ramp_up_obs_5min": 790.6600000000001,
+      "ramp_down_obs_5min": -575.3100000000001,
+      "ramp_mw_min_nameplate": 650.0,
+      "P_max_alltime": 2390.1146999999996,
+      "P_max_hard": 2402.5
+    },
+    "coal_brown": {
+      "units_operating": 10,
+      "P_max_cap": 5095.0,
+      "P_max_reg": 4690.0,
+      "P_max_obs_1h": 4869.481816666666,
+      "P_min_obs_1h": 1160.7448000000002,
+      "ramp_up_obs_1h": 1416.848958333333,
+      "ramp_down_obs_1h": -1170.5520833333335,
+      "ramp_up_obs_5min": 268.37499999999955,
+      "ramp_down_obs_5min": -566.7811999999999,
+      "ramp_mw_min_nameplate": 1000.0,
+      "P_max_alltime": 5154.8861,
+      "P_max_hard": 5154.8861
+    },
+    "gas_steam": {
+      "units_operating": 1,
+      "P_max_cap": 510.0,
+      "P_max_reg": 500.0,
+      "P_max_obs_1h": 511.5625,
+      "P_min_obs_1h": 0.0,
+      "ramp_up_obs_1h": 284.03125,
+      "ramp_down_obs_1h": -374.0,
+      "ramp_up_obs_5min": 58.875,
+      "ramp_down_obs_5min": -499.875,
+      "ramp_mw_min_nameplate": 20.0,
+      "P_max_alltime": 595.5,
+      "P_max_hard": 595.5
+    },
+    "gas_ocgt": {
+      "units_operating": 24,
+      "P_max_cap": 2156.99,
+      "P_max_reg": 1929.46,
+      "P_max_obs_1h": 1725.2652500000002,
+      "P_min_obs_1h": -0.5,
+      "ramp_up_obs_1h": 678.1923750000001,
+      "ramp_down_obs_1h": -644.260525,
+      "ramp_up_obs_5min": 262.89549999999997,
+      "ramp_down_obs_5min": -193.03880000000004,
+      "ramp_mw_min_nameplate": 437.0,
+      "P_max_alltime": 2148.6854000000003,
+      "P_max_hard": 2156.99
+    },
+    "battery": {
+      "units_operating_bidirectional": 15,
+      "P_discharge_max_cap": 2260.0,
+      "P_charge_max_cap": 2210.0,
+      "capacity_storage_mwh": 4735.75,
+      "ramp_mw_min_nameplate": 1878.0,
+      "P_dis_max_obs_1h": 1361.4591333333333,
+      "P_chg_max_obs_1h": 1398.6949833333335,
+      "soc_observed": {
+        "battery": {
+          "soc_min_mwh": 6.294578,
+          "soc_max_mwh": 285.522288,
+          "soc_mean_mwh": 100.5587481099069,
+          "n_points": 7197
+        },
+        "battery_charging": {
+          "soc_min_mwh": 1.21028,
+          "soc_max_mwh": 408.913892,
+          "soc_mean_mwh": 109.0184140106989,
+          "n_points": 7197
+        },
+        "battery_discharging": {
+          "soc_min_mwh": 0.625535,
+          "soc_max_mwh": 497.134233,
+          "soc_mean_mwh": 88.39603906989022,
+          "n_points": 7197
+        }
+      },
+      "soc_observed_note": "SOC only covers batteries that publish energy_storage telemetry, so soc_max << capacity_storage_mwh."
+    }
+  }
+}
