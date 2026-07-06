@@ -37,6 +37,7 @@ DATASETS = {
         train_end=pd.Timestamp("2026-02-28 23:55:00+10:00"),
         val_end=pd.Timestamp("2026-04-11 23:55:00+10:00"),
         vic_island_demand=False,
+        clip_targets=False,     # frozen: 83 tiny negative cells are part of recorded results
     ),
     "hist": dict(
         market="vic_market_20211001_20260706.parquet",
@@ -47,6 +48,10 @@ DATASETS = {
         train_end=pd.Timestamp("2025-06-30 23:55:00+10:00"),
         val_end=pd.Timestamp("2025-12-31 23:55:00+10:00"),
         vic_island_demand=True,
+        # 2026 feeds report small negative station-load readings on idle units
+        # (60k cells, min -7 MW). Clip to the declared targets>=0 invariant;
+        # net_demand is computed AFTER, so the balance identity stays exact.
+        clip_targets=True,
     ),
 }
 
@@ -108,6 +113,10 @@ def build_table(resolution: str = "1h", dataset: str = "last365") -> pd.DataFram
         df["battery_charging"] = df["battery_charging"].abs()
     if "battery_discharging" in df:
         df["battery_discharging"] = df["battery_discharging"].clip(lower=0)
+    if cfg.get("clip_targets"):
+        for c in ("hydro", "coal_brown", "gas_steam", "gas_ocgt"):
+            if c in df:
+                df[c] = df[c].clip(lower=0)
 
     # net_demand = sum of dispatchable generation (load actually served by dispatchable
     # plant). battery_charging is a load, so it is subtracted; discharging adds supply.

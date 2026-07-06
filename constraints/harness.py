@@ -50,15 +50,18 @@ def _consec(index, res: str) -> np.ndarray:
 
 def constraint_report(pred: np.ndarray, actual: np.ndarray, index,
                       nd_input: np.ndarray | None = None, res: str = "5min",
-                      demand_thresh: float = 10.0) -> dict:
+                      demand_thresh: float = 10.0, box_tol: float = 0.1) -> dict:
     pred = np.asarray(pred, dtype=np.float64)
     actual = np.asarray(actual, dtype=np.float64)
     met = ev.compute_metrics(actual, pred, TARGETS)["average"]
     out = {"WAPE": met["WAPE"], "R2": met["R2"], "n": len(pred)}
 
-    # box: negativity + per-target data-max caps
-    out["n_neg"] = int((pred < 0).sum())
-    out["n_cap"] = int(sum((pred[:, i] > cc.CAPS[t]).sum() for i, t in enumerate(TARGETS)))
+    # box: negativity + per-target data-max caps. box_tol (MW) is the
+    # measurement noise floor: float32 scaler round trips turn exact zeros into
+    # +-1e-4 MW, which are not violations. Real violations are >> 0.1 MW.
+    out["n_neg"] = int((pred < -box_tol).sum())
+    out["n_cap"] = int(sum((pred[:, i] > cc.CAPS[t] + box_tol).sum()
+                           for i, t in enumerate(TARGETS)))
 
     # ramps on the predicted trajectory, consecutive pairs only
     consec = _consec(index, res)
