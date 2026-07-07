@@ -1,0 +1,982 @@
+[
+  {
+    "id": "20220221",
+    "seed_day": "2022-02-20",
+    "start": "2022-02-21",
+    "end_excl": "2022-02-22",
+    "n_days": 1,
+    "tags": [
+      "neg_price"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 5841.2,
+    "max_ramp_1h_mw": 895.0,
+    "max_price": 168.3,
+    "min_price": -1000.0,
+    "batt_mwh_day": 296.3,
+    "min_nd_mw": 2657.5
+  },
+  {
+    "id": "20230915",
+    "seed_day": "2023-09-14",
+    "start": "2023-09-15",
+    "end_excl": "2023-09-16",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 6516.7,
+    "max_ramp_1h_mw": 2610.7,
+    "max_price": 227.4,
+    "min_price": -198.9,
+    "batt_mwh_day": 868.7,
+    "min_nd_mw": 2356.7
+  },
+  {
+    "id": "20240730",
+    "seed_day": "2024-07-29",
+    "start": "2024-07-30",
+    "end_excl": "2024-07-31",
+    "n_days": 1,
+    "tags": [
+      "price_spike"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 7809.4,
+    "max_ramp_1h_mw": 1243.3,
+    "max_price": 17376.9,
+    "min_price": 19.2,
+    "batt_mwh_day": 980.9,
+    "min_nd_mw": 4526.6
+  },
+  {
+    "id": "20240805",
+    "seed_day": "2024-08-04",
+    "start": "2024-08-05",
+    "end_excl": "2024-08-06",
+    "n_days": 1,
+    "tags": [
+      "price_spike"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 6798.6,
+    "max_ramp_1h_mw": 999.1,
+    "max_price": 17500.0,
+    "min_price": 83.1,
+    "batt_mwh_day": 1249.0,
+    "min_nd_mw": 4561.5
+  },
+  {
+    "id": "20241013",
+    "seed_day": "2024-10-12",
+    "start": "2024-10-13",
+    "end_excl": "2024-10-14",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 6143.2,
+    "max_ramp_1h_mw": 1494.7,
+    "max_price": 269.6,
+    "min_price": -377.3,
+    "batt_mwh_day": 865.5,
+    "min_nd_mw": 1304.4
+  },
+  {
+    "id": "20241020",
+    "seed_day": "2024-10-19",
+    "start": "2024-10-20",
+    "end_excl": "2024-10-21",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 5468.4,
+    "max_ramp_1h_mw": 1448.2,
+    "max_price": 219.2,
+    "min_price": -450.9,
+    "batt_mwh_day": 757.2,
+    "min_nd_mw": 1215.2
+  },
+  {
+    "id": "20241026",
+    "seed_day": "2024-10-25",
+    "start": "2024-10-26",
+    "end_excl": "2024-10-27",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 5602.3,
+    "max_ramp_1h_mw": 2618.7,
+    "max_price": 276.6,
+    "min_price": -440.1,
+    "batt_mwh_day": 901.7,
+    "min_nd_mw": 1671.2
+  },
+  {
+    "id": "20241117",
+    "seed_day": "2024-11-16",
+    "start": "2024-11-17",
+    "end_excl": "2024-11-18",
+    "n_days": 1,
+    "tags": [
+      "neg_price"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 5754.8,
+    "max_ramp_1h_mw": 1105.4,
+    "max_price": 96.0,
+    "min_price": -1000.0,
+    "batt_mwh_day": 415.6,
+    "min_nd_mw": 1581.3
+  },
+  {
+    "id": "20241216",
+    "seed_day": "2024-12-15",
+    "start": "2024-12-16",
+    "end_excl": "2024-12-17",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 9463.6,
+    "max_ramp_1h_mw": 1315.7,
+    "max_price": 600.8,
+    "min_price": -219.7,
+    "batt_mwh_day": 629.6,
+    "min_nd_mw": 2480.0
+  },
+  {
+    "id": "20241218",
+    "seed_day": "2024-12-17",
+    "start": "2024-12-18",
+    "end_excl": "2024-12-19",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 6162.1,
+    "max_ramp_1h_mw": 1532.5,
+    "max_price": 154.1,
+    "min_price": -141.2,
+    "batt_mwh_day": 538.8,
+    "min_nd_mw": 1272.4
+  },
+  {
+    "id": "20250122",
+    "seed_day": "2025-01-21",
+    "start": "2025-01-22",
+    "end_excl": "2025-01-23",
+    "n_days": 1,
+    "tags": [
+      "neg_price"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 6180.8,
+    "max_ramp_1h_mw": 1003.6,
+    "max_price": 99.0,
+    "min_price": -1000.0,
+    "batt_mwh_day": 260.9,
+    "min_nd_mw": 1754.5
+  },
+  {
+    "id": "20250127",
+    "seed_day": "2025-01-26",
+    "start": "2025-01-27",
+    "end_excl": "2025-01-28",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 9311.3,
+    "max_ramp_1h_mw": 2506.5,
+    "max_price": 479.5,
+    "min_price": -62.5,
+    "batt_mwh_day": 925.8,
+    "min_nd_mw": 1914.2
+  },
+  {
+    "id": "20250518",
+    "seed_day": "2025-05-17",
+    "start": "2025-05-18",
+    "end_excl": "2025-05-19",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 7533.3,
+    "max_ramp_1h_mw": 2688.6,
+    "max_price": 296.7,
+    "min_price": -50.1,
+    "batt_mwh_day": 807.5,
+    "min_nd_mw": 1883.5
+  },
+  {
+    "id": "20250612_2d",
+    "seed_day": "2025-06-11",
+    "start": "2025-06-12",
+    "end_excl": "2025-06-14",
+    "n_days": 2,
+    "tags": [
+      "batt_cycle",
+      "price_spike"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 7506.8,
+    "max_ramp_1h_mw": 1584.8,
+    "max_price": 17500.0,
+    "min_price": 88.8,
+    "batt_mwh_day": 2927.7,
+    "min_nd_mw": 4198.2
+  },
+  {
+    "id": "20250624",
+    "seed_day": "2025-06-23",
+    "start": "2025-06-24",
+    "end_excl": "2025-06-25",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 9369.7,
+    "max_ramp_1h_mw": 1608.2,
+    "max_price": 379.5,
+    "min_price": -20.0,
+    "batt_mwh_day": 1316.4,
+    "min_nd_mw": 2390.6
+  },
+  {
+    "id": "20250626",
+    "seed_day": "2025-06-25",
+    "start": "2025-06-26",
+    "end_excl": "2025-06-27",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "train",
+    "in_sample": true,
+    "peak_demand_mw": 7369.4,
+    "max_ramp_1h_mw": 1710.8,
+    "max_price": 15974.3,
+    "min_price": 171.8,
+    "batt_mwh_day": 2734.7,
+    "min_nd_mw": 4602.1
+  },
+  {
+    "id": "20250709",
+    "seed_day": "2025-07-08",
+    "start": "2025-07-09",
+    "end_excl": "2025-07-10",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 9053.9,
+    "max_ramp_1h_mw": 1947.6,
+    "max_price": 363.8,
+    "min_price": -39.5,
+    "batt_mwh_day": 2326.0,
+    "min_nd_mw": 1871.7
+  },
+  {
+    "id": "20250725",
+    "seed_day": "2025-07-24",
+    "start": "2025-07-25",
+    "end_excl": "2025-07-26",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 9917.5,
+    "max_ramp_1h_mw": 1467.3,
+    "max_price": 274.4,
+    "min_price": -468.9,
+    "batt_mwh_day": 1041.6,
+    "min_nd_mw": 2430.7
+  },
+  {
+    "id": "20250730",
+    "seed_day": "2025-07-29",
+    "start": "2025-07-30",
+    "end_excl": "2025-07-31",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 8988.2,
+    "max_ramp_1h_mw": 1847.9,
+    "max_price": 299.5,
+    "min_price": 26.4,
+    "batt_mwh_day": 1950.0,
+    "min_nd_mw": 4406.3
+  },
+  {
+    "id": "20250815_2d",
+    "seed_day": "2025-08-14",
+    "start": "2025-08-15",
+    "end_excl": "2025-08-17",
+    "n_days": 2,
+    "tags": [
+      "high_ramp",
+      "neg_price"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 7997.0,
+    "max_ramp_1h_mw": 2373.9,
+    "max_price": 286.1,
+    "min_price": -1000.0,
+    "batt_mwh_day": 2472.1,
+    "min_nd_mw": 1638.4
+  },
+  {
+    "id": "20250829_2d",
+    "seed_day": "2025-08-28",
+    "start": "2025-08-29",
+    "end_excl": "2025-08-31",
+    "n_days": 2,
+    "tags": [
+      "high_ramp",
+      "peak_demand"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 9263.4,
+    "max_ramp_1h_mw": 2377.9,
+    "max_price": 358.2,
+    "min_price": -29.1,
+    "batt_mwh_day": 1469.8,
+    "min_nd_mw": 1488.0
+  },
+  {
+    "id": "20250917",
+    "seed_day": "2025-09-16",
+    "start": "2025-09-17",
+    "end_excl": "2025-09-18",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6659.4,
+    "max_ramp_1h_mw": 2454.8,
+    "max_price": 402.6,
+    "min_price": -19.2,
+    "batt_mwh_day": 2700.5,
+    "min_nd_mw": 1571.1
+  },
+  {
+    "id": "20250923",
+    "seed_day": "2025-09-22",
+    "start": "2025-09-23",
+    "end_excl": "2025-09-24",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6946.7,
+    "max_ramp_1h_mw": 1481.2,
+    "max_price": 228.0,
+    "min_price": -10.7,
+    "batt_mwh_day": 2716.2,
+    "min_nd_mw": 677.2
+  },
+  {
+    "id": "20250926",
+    "seed_day": "2025-09-25",
+    "start": "2025-09-26",
+    "end_excl": "2025-09-27",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6750.8,
+    "max_ramp_1h_mw": 1302.7,
+    "max_price": 98.1,
+    "min_price": -50.2,
+    "batt_mwh_day": 1619.9,
+    "min_nd_mw": 602.1
+  },
+  {
+    "id": "20250928_3d",
+    "seed_day": "2025-09-27",
+    "start": "2025-09-28",
+    "end_excl": "2025-10-01",
+    "n_days": 3,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 7016.5,
+    "max_ramp_1h_mw": 2687.7,
+    "max_price": 299.3,
+    "min_price": -63.0,
+    "batt_mwh_day": 3168.5,
+    "min_nd_mw": 854.6
+  },
+  {
+    "id": "20251013",
+    "seed_day": "2025-10-12",
+    "start": "2025-10-13",
+    "end_excl": "2025-10-14",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle",
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6486.6,
+    "max_ramp_1h_mw": 2472.1,
+    "max_price": 307.2,
+    "min_price": -23.1,
+    "batt_mwh_day": 4474.0,
+    "min_nd_mw": 1146.6
+  },
+  {
+    "id": "20251017",
+    "seed_day": "2025-10-16",
+    "start": "2025-10-17",
+    "end_excl": "2025-10-18",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5589.2,
+    "max_ramp_1h_mw": 1502.1,
+    "max_price": 149.6,
+    "min_price": -110.6,
+    "batt_mwh_day": 1891.4,
+    "min_nd_mw": 799.4
+  },
+  {
+    "id": "20251029",
+    "seed_day": "2025-10-28",
+    "start": "2025-10-29",
+    "end_excl": "2025-10-30",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6113.9,
+    "max_ramp_1h_mw": 1645.1,
+    "max_price": 299.5,
+    "min_price": -20.8,
+    "batt_mwh_day": 4993.9,
+    "min_nd_mw": 1582.3
+  },
+  {
+    "id": "20251111_2d",
+    "seed_day": "2025-11-10",
+    "start": "2025-11-11",
+    "end_excl": "2025-11-13",
+    "n_days": 2,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 7229.6,
+    "max_ramp_1h_mw": 2833.2,
+    "max_price": 298.1,
+    "min_price": -38.9,
+    "batt_mwh_day": 3683.6,
+    "min_nd_mw": 1173.8
+  },
+  {
+    "id": "20251123",
+    "seed_day": "2025-11-22",
+    "start": "2025-11-23",
+    "end_excl": "2025-11-24",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5943.9,
+    "max_ramp_1h_mw": 1536.3,
+    "max_price": 293.2,
+    "min_price": -25.5,
+    "batt_mwh_day": 2736.7,
+    "min_nd_mw": 542.3
+  },
+  {
+    "id": "20251125",
+    "seed_day": "2025-11-24",
+    "start": "2025-11-25",
+    "end_excl": "2025-11-26",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5966.2,
+    "max_ramp_1h_mw": 2386.4,
+    "max_price": 165.0,
+    "min_price": -164.0,
+    "batt_mwh_day": 3933.1,
+    "min_nd_mw": 973.5
+  },
+  {
+    "id": "20251127",
+    "seed_day": "2025-11-26",
+    "start": "2025-11-27",
+    "end_excl": "2025-11-28",
+    "n_days": 1,
+    "tags": [
+      "high_ramp"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6126.0,
+    "max_ramp_1h_mw": 2436.4,
+    "max_price": 176.3,
+    "min_price": -66.3,
+    "batt_mwh_day": 3977.1,
+    "min_nd_mw": 1451.5
+  },
+  {
+    "id": "20251129",
+    "seed_day": "2025-11-28",
+    "start": "2025-11-29",
+    "end_excl": "2025-11-30",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5656.2,
+    "max_ramp_1h_mw": 1830.5,
+    "max_price": 127.3,
+    "min_price": -43.8,
+    "batt_mwh_day": 3588.2,
+    "min_nd_mw": 758.7
+  },
+  {
+    "id": "20251202_4d",
+    "seed_day": "2025-12-01",
+    "start": "2025-12-02",
+    "end_excl": "2025-12-06",
+    "n_days": 4,
+    "tags": [
+      "batt_cycle",
+      "high_ramp",
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 7517.8,
+    "max_ramp_1h_mw": 3035.4,
+    "max_price": 183.1,
+    "min_price": -47.3,
+    "batt_mwh_day": 4537.4,
+    "min_nd_mw": 576.8
+  },
+  {
+    "id": "20251209",
+    "seed_day": "2025-12-08",
+    "start": "2025-12-09",
+    "end_excl": "2025-12-10",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6664.2,
+    "max_ramp_1h_mw": 1571.0,
+    "max_price": 116.2,
+    "min_price": -17.4,
+    "batt_mwh_day": 5164.5,
+    "min_nd_mw": 1099.0
+  },
+  {
+    "id": "20251213_2d",
+    "seed_day": "2025-12-12",
+    "start": "2025-12-13",
+    "end_excl": "2025-12-15",
+    "n_days": 2,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5735.9,
+    "max_ramp_1h_mw": 1520.1,
+    "max_price": 311.5,
+    "min_price": -108.7,
+    "batt_mwh_day": 3565.2,
+    "min_nd_mw": 526.7
+  },
+  {
+    "id": "20251216",
+    "seed_day": "2025-12-15",
+    "start": "2025-12-16",
+    "end_excl": "2025-12-17",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 6614.2,
+    "max_ramp_1h_mw": 1747.1,
+    "max_price": 95.2,
+    "min_price": -46.3,
+    "batt_mwh_day": 4420.4,
+    "min_nd_mw": 836.0
+  },
+  {
+    "id": "20251218",
+    "seed_day": "2025-12-17",
+    "start": "2025-12-18",
+    "end_excl": "2025-12-19",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 8177.3,
+    "max_ramp_1h_mw": 1617.9,
+    "max_price": 324.3,
+    "min_price": -3.7,
+    "batt_mwh_day": 4196.5,
+    "min_nd_mw": 690.9
+  },
+  {
+    "id": "20251227",
+    "seed_day": "2025-12-26",
+    "start": "2025-12-27",
+    "end_excl": "2025-12-28",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "val",
+    "in_sample": false,
+    "peak_demand_mw": 5974.6,
+    "max_ramp_1h_mw": 2240.7,
+    "max_price": 47.0,
+    "min_price": -204.3,
+    "batt_mwh_day": 5095.1,
+    "min_nd_mw": 821.2
+  },
+  {
+    "id": "20260101",
+    "seed_day": "2025-12-31",
+    "start": "2026-01-01",
+    "end_excl": "2026-01-02",
+    "n_days": 1,
+    "tags": [
+      "min_nd"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 5866.0,
+    "max_ramp_1h_mw": 1683.8,
+    "max_price": 64.5,
+    "min_price": -162.4,
+    "batt_mwh_day": 3084.4,
+    "min_nd_mw": 596.2
+  },
+  {
+    "id": "20260107",
+    "seed_day": "2026-01-06",
+    "start": "2026-01-07",
+    "end_excl": "2026-01-08",
+    "n_days": 1,
+    "tags": [
+      "peak_demand",
+      "price_spike"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 10084.8,
+    "max_ramp_1h_mw": 1695.3,
+    "max_price": 1392.7,
+    "min_price": -17.2,
+    "batt_mwh_day": 3167.6,
+    "min_nd_mw": 1476.8
+  },
+  {
+    "id": "20260109",
+    "seed_day": "2026-01-08",
+    "start": "2026-01-09",
+    "end_excl": "2026-01-10",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 9422.2,
+    "max_ramp_1h_mw": 1822.2,
+    "max_price": 950.5,
+    "min_price": -80.0,
+    "batt_mwh_day": 3527.8,
+    "min_nd_mw": 2152.7
+  },
+  {
+    "id": "20260124",
+    "seed_day": "2026-01-23",
+    "start": "2026-01-24",
+    "end_excl": "2026-01-25",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 9362.2,
+    "max_ramp_1h_mw": 1788.9,
+    "max_price": 147.0,
+    "min_price": -13.9,
+    "batt_mwh_day": 2516.7,
+    "min_nd_mw": 2046.8
+  },
+  {
+    "id": "20260127",
+    "seed_day": "2026-01-26",
+    "start": "2026-01-27",
+    "end_excl": "2026-01-28",
+    "n_days": 1,
+    "tags": [
+      "peak_demand",
+      "price_spike"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 10509.6,
+    "max_ramp_1h_mw": 1823.9,
+    "max_price": 3026.0,
+    "min_price": 9.0,
+    "batt_mwh_day": 2618.0,
+    "min_nd_mw": 2905.3
+  },
+  {
+    "id": "20260217",
+    "seed_day": "2026-02-16",
+    "start": "2026-02-17",
+    "end_excl": "2026-02-18",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 9200.7,
+    "max_ramp_1h_mw": 1949.0,
+    "max_price": 269.8,
+    "min_price": -110.3,
+    "batt_mwh_day": 2431.1,
+    "min_nd_mw": 1598.1
+  },
+  {
+    "id": "20260304",
+    "seed_day": "2026-03-03",
+    "start": "2026-03-04",
+    "end_excl": "2026-03-05",
+    "n_days": 1,
+    "tags": [
+      "neg_price"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 6997.0,
+    "max_ramp_1h_mw": 1436.1,
+    "max_price": 115.2,
+    "min_price": -970.0,
+    "batt_mwh_day": 3202.0,
+    "min_nd_mw": 2521.5
+  },
+  {
+    "id": "20260405",
+    "seed_day": "2026-04-04",
+    "start": "2026-04-05",
+    "end_excl": "2026-04-06",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 6374.7,
+    "max_ramp_1h_mw": 1717.4,
+    "max_price": 81.0,
+    "min_price": -60.0,
+    "batt_mwh_day": 4717.2,
+    "min_nd_mw": 1665.1
+  },
+  {
+    "id": "20260505",
+    "seed_day": "2026-05-04",
+    "start": "2026-05-05",
+    "end_excl": "2026-05-06",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 7084.5,
+    "max_ramp_1h_mw": 1191.3,
+    "max_price": 190.5,
+    "min_price": -0.1,
+    "batt_mwh_day": 4665.9,
+    "min_nd_mw": 2826.8
+  },
+  {
+    "id": "20260511",
+    "seed_day": "2026-05-10",
+    "start": "2026-05-11",
+    "end_excl": "2026-05-12",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 7070.8,
+    "max_ramp_1h_mw": 1646.8,
+    "max_price": 138.5,
+    "min_price": 14.9,
+    "batt_mwh_day": 4626.2,
+    "min_nd_mw": 3054.6
+  },
+  {
+    "id": "20260601",
+    "seed_day": "2026-05-31",
+    "start": "2026-06-01",
+    "end_excl": "2026-06-02",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 9433.1,
+    "max_ramp_1h_mw": 1431.9,
+    "max_price": 224.5,
+    "min_price": -15.7,
+    "batt_mwh_day": 1104.6,
+    "min_nd_mw": 3148.1
+  },
+  {
+    "id": "20260604",
+    "seed_day": "2026-06-03",
+    "start": "2026-06-04",
+    "end_excl": "2026-06-05",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 9730.2,
+    "max_ramp_1h_mw": 1844.5,
+    "max_price": 104.1,
+    "min_price": -15.4,
+    "batt_mwh_day": 3279.9,
+    "min_nd_mw": 2378.6
+  },
+  {
+    "id": "20260615",
+    "seed_day": "2026-06-14",
+    "start": "2026-06-15",
+    "end_excl": "2026-06-16",
+    "n_days": 1,
+    "tags": [
+      "peak_demand"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 8935.9,
+    "max_ramp_1h_mw": 1717.6,
+    "max_price": 113.8,
+    "min_price": 0.0,
+    "batt_mwh_day": 3013.4,
+    "min_nd_mw": 3115.2
+  },
+  {
+    "id": "20260624",
+    "seed_day": "2026-06-23",
+    "start": "2026-06-24",
+    "end_excl": "2026-06-25",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 7772.9,
+    "max_ramp_1h_mw": 1613.3,
+    "max_price": 313.8,
+    "min_price": 80.5,
+    "batt_mwh_day": 5197.8,
+    "min_nd_mw": 4261.6
+  },
+  {
+    "id": "20260626",
+    "seed_day": "2026-06-25",
+    "start": "2026-06-26",
+    "end_excl": "2026-06-27",
+    "n_days": 1,
+    "tags": [
+      "batt_cycle"
+    ],
+    "split": "test",
+    "in_sample": false,
+    "peak_demand_mw": 7387.7,
+    "max_ramp_1h_mw": 1357.7,
+    "max_price": 244.4,
+    "min_price": 69.8,
+    "batt_mwh_day": 5110.7,
+    "min_nd_mw": 4072.4
+  }
+]

@@ -485,9 +485,13 @@ class iTransformer(nn.Module):
 
     def __init__(self, seq_len=288, n_features=16, n_targets=6, target_feat_idx=None,
                  d_model=128, n_heads=4, n_layers=3, d_ff=256, dropout=0.1,
-                 use_revin=True):
+                 use_revin=True, revin_out=True):
         super().__init__()
         self.use_revin = use_revin
+        # revin_out=False: normalise inputs but return RAW head outputs (no
+        # per-window denorm) -- required when outputs are direction vectors
+        # (RayenHead), where adding window means would corrupt the direction.
+        self.revin_out = revin_out
         self.target_idx = list(range(n_targets)) if target_feat_idx is None else list(target_feat_idx)
         self.var_embed = nn.Linear(seq_len, d_model)
         self.pos = nn.Parameter(torch.randn(1, n_features, d_model) * 0.02)
@@ -510,8 +514,8 @@ class iTransformer(nn.Module):
         tokens = self.encoder(tokens)                                           # (B, C, d)
         tgt_tok = tokens.index_select(1, self._target_idx_t)                    # (B, K, d)
         out = self.head(tgt_tok).squeeze(-1)                                    # (B, K)
-        if not self.use_revin:
-            return out                                     # direct in global-scaled target space
+        if not self.use_revin or not self.revin_out:
+            return out                                     # raw (no per-window denorm)
         # denormalise per target using each target's own channel stats
         tgt_mean = mean.squeeze(1).index_select(1, self._target_idx_t)
         tgt_std = std.squeeze(1).index_select(1, self._target_idx_t)
@@ -564,6 +568,118 @@ class PatchTST(nn.Module):
         tgt_mean = mean.squeeze(1).index_select(1, self._target_idx_t)
         tgt_std = std.squeeze(1).index_select(1, self._target_idx_t)
         return tgt * tgt_std + tgt_mean
+
+
+class RayenHead(nn.Module):
+    """Konstantinov/RAYEN-style hard-constraint output layer (see plan.md).
+
+    Output y = (D_t, P_1..P_6) in MW satisfies, by construction:
+      - balance:  SIGN . P - D_t = 0   (exactly, at any weights)
+      - ramps:    |P_i - P_{i,t-1}| within the asymmetric per-step limits
+      - floors:   P_i >= 0 (optional include_floor, on by default)
+
+    Mechanism: anchor p = previous step's dispatch (its D entry = SIGN.p, so p
+    is on the balance plane and trivially ramp-feasible; zero movement =
+    persistence). The backbone emits a raw direction r (7) + scalar s; r is
+    projected onto the balance plane, alpha* is the distance to the nearest
+    ramp/floor wall along r, and y = p + sigmoid(s) * alpha* * r. Exact
+    gradients, no divisions by predicted sums (cf. the DemandAnchoredHead
+    trained-through failure).
+
+    base outputs (B, 8) RAW (no output denorm -- RevIN denorm would add
+    per-window means onto direction components). Returned prediction is (B, 7)
+    scaled: [:, 0] = D_t in x-scaler nd units, [:, 1:] = dispatch in y-scaler
+    units (so [:, 1:] drops into the existing eval loop).
+    """
+
+    def __init__(self, base: nn.Module, x_mean, x_scale, y_mean, y_scale,
+                 ramp_up, ramp_dn, nd_feat_idx: int = 6,
+                 include_floor: bool = True, eps_mw: float = 0.5):
+        super().__init__()
+        self.base = base
+        self.nd_feat_idx = nd_feat_idx
+        self.include_floor = include_floor
+        self.eps_mw = eps_mw
+        sign = torch.tensor([1., 1., 1., 1., -1., 1.])
+        self.register_buffer("_sign", sign)
+        a = torch.cat([torch.tensor([-1.]), sign])                    # (7,) plane normal
+        self.register_buffer("_a", a)
+        self.register_buffer("_feat_idx", torch.tensor(TARGET_FEAT_IDX, dtype=torch.long))
+        self.register_buffer("_x_mean", torch.tensor(np.asarray(x_mean)[TARGET_FEAT_IDX], dtype=torch.float32))
+        self.register_buffer("_x_scale", torch.tensor(np.asarray(x_scale)[TARGET_FEAT_IDX], dtype=torch.float32))
+        self.register_buffer("_nd_mean", torch.tensor(float(np.asarray(x_mean)[nd_feat_idx])))
+        self.register_buffer("_nd_scale", torch.tensor(float(np.asarray(x_scale)[nd_feat_idx])))
+        self.register_buffer("_y_mean", torch.tensor(np.asarray(y_mean), dtype=torch.float32))
+        self.register_buffer("_y_scale", torch.tensor(np.asarray(y_scale), dtype=torch.float32))
+        self.register_buffer("_r_up", torch.tensor(np.asarray(ramp_up), dtype=torch.float32))
+        self.register_buffer("_r_dn", torch.tensor(np.asarray(ramp_dn), dtype=torch.float32))
+        # start AT the anchor (= persistence, the strong baseline): damped raw
+        # directions + strongly negative step bias => initial output ~ p, and
+        # training pushes away from persistence only where the loss says so.
+        self.r_gain = nn.Parameter(torch.tensor(0.05))
+        self.s_bias = nn.Parameter(torch.tensor(-4.0))
+
+    def forward(self, x):
+        out = self.base(x)                                            # (B, 8) raw
+        r, s = out[:, :7] * self.r_gain, out[:, 7] + self.s_bias
+
+        prev = x[:, -1, :].index_select(1, self._feat_idx)            # (B,6) x-scaled
+        prev_mw = prev * self._x_scale + self._x_mean
+        p_gen = prev_mw.clamp_min(self.eps_mw)                        # eps-interior anchor
+        p = torch.cat([(p_gen * self._sign).sum(-1, keepdim=True), p_gen], dim=1)
+
+        if self.include_floor:                                        # kill descent on floored channels
+            at_floor = (p_gen <= self.eps_mw + 1e-6) & (r[:, 1:] < 0)
+            r = torch.cat([r[:, :1], r[:, 1:].masked_fill(at_floor, 0.0)], dim=1)
+        r = r - (r @ self._a).unsqueeze(-1) * self._a / (self._a @ self._a)
+
+        rg = r[:, 1:]                                                 # (B,6) generator components
+        big = torch.full_like(rg, 1e9)
+        wall_up = torch.where(rg > 1e-9, self._r_up / rg.clamp_min(1e-9), big)
+        dn_lim = self._r_dn if not self.include_floor else torch.minimum(
+            self._r_dn.expand_as(rg), p_gen)                          # floor wall: travel < p_i
+        wall_dn = torch.where(rg < -1e-9, dn_lim / (-rg).clamp_min(1e-9), big)
+        alpha = torch.minimum(wall_up, wall_dn).amin(dim=1)           # (B,)
+        alpha = torch.where(alpha >= 1e9, torch.zeros_like(alpha), alpha)  # r_gen ~ 0 -> persistence
+
+        y = p + torch.sigmoid(s).unsqueeze(-1) * alpha.unsqueeze(-1) * r
+        d_scaled = (y[:, :1] - self._nd_mean) / self._nd_scale
+        gen_scaled = (y[:, 1:] - self._y_mean) / self._y_scale
+        return torch.cat([d_scaled, gen_scaled], dim=1)               # (B, 7)
+
+
+def make_rayen(base_arch: str, x_scaler, y_scaler, ramp_up, ramp_dn,
+               nd_feat_idx: int = 6, n_features: int = 17,
+               include_floor: bool = True) -> nn.Module:
+    """lstm_rayen: plain LSTM backbone. itransformer_rayen: input-RevIN
+    iTransformer with output denorm off. Both emit 8 raw outputs."""
+    if base_arch == "lstm":
+        base = LSTMForecaster(n_features=n_features, n_targets=8, hidden=128, layers=2, dropout=0.2)
+    elif base_arch == "itransformer":
+        base = iTransformer(seq_len=288, n_features=n_features, n_targets=8,
+                            target_feat_idx=[0, 3, 1, 2, 4, 5, 6, 7],
+                            d_model=128, n_heads=4, n_layers=3, d_ff=256, dropout=0.1,
+                            use_revin=True, revin_out=False)
+    else:
+        raise ValueError(f"unsupported rayen base {base_arch!r}")
+    return RayenHead(base, x_scaler.mean_, x_scaler.scale_, y_scaler.mean_, y_scaler.scale_,
+                     ramp_up, ramp_dn, nd_feat_idx=nd_feat_idx, include_floor=include_floor)
+
+
+def make_task7(base_arch: str, n_features: int = 17, nd_feat_idx: int = 6) -> nn.Module:
+    """7-output task nets (D_t, P_1..P_6) for the decision-rules approach
+    (lib/decision_rule.py): trained for accuracy as usual on the y7 targets
+    ([scaled nd_t, 6 scaled dispatch], same supervision as the rayen arm).
+    lstm_task7 = plain LSTM; itransformer_task7 = full-RevIN iTransformer
+    (outputs are levels here, not directions, so output denorm stays ON)."""
+    if base_arch == "lstm":
+        return LSTMForecaster(n_features=n_features, n_targets=7, hidden=128, layers=2, dropout=0.2)
+    if base_arch == "itransformer":
+        return iTransformer(seq_len=288, n_features=n_features, n_targets=7,
+                            target_feat_idx=[nd_feat_idx] + TARGET_FEAT_IDX,
+                            d_model=128, n_heads=4, n_layers=3, d_ff=256, dropout=0.1,
+                            use_revin=True)
+    raise ValueError(f"unsupported task7 base {base_arch!r}")
 
 
 class PersistenceForecaster(nn.Module):
