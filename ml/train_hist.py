@@ -37,8 +37,8 @@ import pipeline                 # noqa: E402
 import models as M              # noqa: E402
 import evaluate as ev           # noqa: E402
 
-RECIPES = {"itransformer": dict(epochs=200, patience=20, batch=64)}
-DEFAULT_RECIPE = dict(epochs=200, patience=20, batch=128)
+RECIPES = {"itransformer": dict(epochs= 40, patience=10, batch=128)}
+DEFAULT_RECIPE = dict(epochs=40, patience=10, batch=128)
 
 
 def _val_mse(model, Xva, Yva, device, batch):
