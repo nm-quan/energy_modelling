@@ -112,8 +112,9 @@ def main():
     args = ap.parse_args()
 
     is_rayen = args.arch.endswith("_rayen")
+    is_rayenfd = args.arch.endswith("_rayenfd")  # RAYEN with demand plane pinned to nd(t-1)
     is_task7 = args.arch.endswith("_task7")     # decision-rules task net (7 outputs)
-    base_arch = args.arch.rsplit("_", 1)[0] if (is_rayen or is_task7) else args.arch
+    base_arch = args.arch.rsplit("_", 1)[0] if (is_rayen or is_rayenfd or is_task7) else args.arch
     rec = dict(RECIPES.get(base_arch, DEFAULT_RECIPE))
     for k in ("epochs", "patience", "batch"):
         if getattr(args, k) is not None:
@@ -145,9 +146,10 @@ def main():
     ramp_dn = [abs(RAMPS[t][0]) for t in data["targets"]]
     ramp_up = [RAMPS[t][1] for t in data["targets"]]
     ev._seed_all(args.seed)
-    if is_rayen:
+    if is_rayen or is_rayenfd:
         model = M.make_rayen(base_arch, xs, ys, ramp_up, ramp_dn,
-                             nd_feat_idx=nd_idx, n_features=len(data["feat_cols"])).to(device)
+                             nd_feat_idx=nd_idx, n_features=len(data["feat_cols"]),
+                             fix_demand=is_rayenfd).to(device)
     elif is_task7:
         model = M.make_task7(base_arch, n_features=len(data["feat_cols"]),
                              nd_feat_idx=nd_idx).to(device)
@@ -186,6 +188,20 @@ def main():
     extras, dr_result = {}, None
     if is_rayen:
         pred, extras = seven_extras(pred_raw, "rayen self-check")
+    elif is_rayenfd:
+        # D is pinned to nd(t-1)@in, not predicted: balance is checked vs the
+        # window's net_demand (= @in), which in-distribution equals SIGN.P_{t-1}.
+        pred = ys.inverse_transform(pred_raw)
+        nd_in = data["Xte"][:, -1, nd_idx] * xs.scale_[nd_idx] + xs.mean_[nd_idx]
+        resid = np.abs(pred @ SIGN - nd_in)
+        delta = pred - prev
+        n_ramp = int(((delta > np.array(ramp_up) + 0.6)
+                      | (delta < -(np.array(ramp_dn) + 0.6))).sum())
+        extras = {"balance_resid_max_mw_vs_ndin": float(resid.max()),
+                  "balance_resid_mean_mw_vs_ndin": float(resid.mean()),
+                  "n_ramp_vs_prev": n_ramp, "n_neg": int((pred < -0.1).sum())}
+        print(f"  rayenfd self-check: |SIGN.P - nd_in| max={resid.max():.4f} "
+              f"mean={resid.mean():.4f} MW, ramp_viol={n_ramp}, neg={extras['n_neg']}", flush=True)
     elif is_task7:
         pred, extras = seven_extras(pred_raw, "task7 bare")
         # post-hoc decision-rules arm: safe-net LP once, wrap, re-predict

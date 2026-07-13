@@ -50,7 +50,8 @@ def _consec(index, res: str) -> np.ndarray:
 
 def constraint_report(pred: np.ndarray, actual: np.ndarray, index,
                       nd_input: np.ndarray | None = None, res: str = "5min",
-                      demand_thresh: float = 10.0, box_tol: float = 0.1) -> dict:
+                      demand_thresh: float = 10.0, box_tol: float = 0.1,
+                      soc_period: str = "day") -> dict:
     pred = np.asarray(pred, dtype=np.float64)
     actual = np.asarray(actual, dtype=np.float64)
     met = ev.compute_metrics(actual, pred, TARGETS)["average"]
@@ -84,12 +85,24 @@ def constraint_report(pred: np.ndarray, actual: np.ndarray, index,
         out[f"mismatch_{tag}_pct"] = float(100 * np.abs(resid).sum() / np.abs(ref).sum())
 
     # battery SOC feasibility: does any SOC0 in [0, cap] keep the reservoir in
-    # bounds? Gaps in the index start a new reservoir segment (as in check_caps).
+    # bounds? Segments restart on index gaps AND (soc_period="day") at each
+    # calendar-day boundary. Batteries cycle daily, so the per-day swing is the
+    # physical feasibility unit; measuring one continuous 6-month segment turns a
+    # ~1% eta bias into unbounded drift (actuals falsely read 115% of nameplate,
+    # feasible per-day at 79%). soc_period="window" restores the legacy behaviour.
+    out["soc_period"] = soc_period
     eta_rt = _eta(res)
     if eta_rt is None:
         out.update(soc_feasible=None, soc0_window_pct=None, soc_swing_pct=None)
     else:
-        seg = np.cumsum(~consec)
+        soc_break = ~consec
+        if soc_period == "day":
+            day = pd.DatetimeIndex(index).normalize().to_numpy()
+            day_break = np.empty(len(pred), dtype=bool)
+            day_break[0] = True
+            day_break[1:] = day[1:] != day[:-1]
+            soc_break = soc_break | day_break
+        seg = np.cumsum(soc_break)
         chg = np.clip(pred[:, TARGETS.index("battery_charging")], 0, None)
         dis = np.clip(pred[:, TARGETS.index("battery_discharging")], 0, None)
         swing, cmin, cmax, _ = cc._soc_swing(chg, dis, seg, np.sqrt(eta_rt),

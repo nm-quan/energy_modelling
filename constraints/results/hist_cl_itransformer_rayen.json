@@ -1,0 +1,14 @@
+{
+  "model": "itransformer_rayen",
+  "n": 720,
+  "n_episodes": 15,
+  "cl_WAPE": 0.4896749422667462,
+  "n_ramp": 0,
+  "ramp_excess_pct": 0.0,
+  "bal_own_max_mw": 0.0007960551829455653,
+  "n_demand_act": 698,
+  "mismatch_act_pct": 7.513546413254786,
+  "n_neg": 0,
+  "soc_feasible_eps": 15,
+  "soc_worst_ep_pct": 40.02130293916552
+}

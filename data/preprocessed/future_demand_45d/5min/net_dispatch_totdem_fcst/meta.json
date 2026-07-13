@@ -1,0 +1,40 @@
+{
+  "resolution": "5min",
+  "input_mode": "net_dispatch_totdem_fcst",
+  "lookback_steps": 288,
+  "horizon": 1,
+  "n_train": 8639,
+  "n_val": 2016,
+  "n_test": 2016,
+  "features": [
+    "hydro",
+    "gas_steam",
+    "gas_ocgt",
+    "coal_brown",
+    "battery_charging",
+    "battery_discharging",
+    "net_demand",
+    "demand_mw",
+    "demand_fcst",
+    "price_aud_per_mwh",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "season_sin",
+    "season_cos",
+    "is_weekend",
+    "is_peak"
+  ],
+  "targets": [
+    "hydro",
+    "coal_brown",
+    "gas_steam",
+    "gas_ocgt",
+    "battery_charging",
+    "battery_discharging"
+  ],
+  "dataset": "future_demand_45d",
+  "train_end": "2026-06-28 23:55:00+10:00",
+  "val_end": "2026-07-05 23:55:00+10:00"
+}

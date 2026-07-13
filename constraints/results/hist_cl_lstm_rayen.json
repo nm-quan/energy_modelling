@@ -1,0 +1,14 @@
+{
+  "model": "lstm_rayen",
+  "n": 720,
+  "n_episodes": 15,
+  "cl_WAPE": 0.5319191825357426,
+  "n_ramp": 0,
+  "ramp_excess_pct": 0.0,
+  "bal_own_max_mw": 0.0007669270107726334,
+  "n_demand_act": 696,
+  "mismatch_act_pct": 7.535178937679151,
+  "n_neg": 0,
+  "soc_feasible_eps": 15,
+  "soc_worst_ep_pct": 18.381878247725098
+}

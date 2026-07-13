@@ -1,0 +1,14 @@
+{
+  "model": "persistence",
+  "n": 720,
+  "n_episodes": 15,
+  "cl_WAPE": 0.48323399701221936,
+  "n_ramp": 0,
+  "ramp_excess_pct": 0.0,
+  "bal_own_max_mw": 0.0,
+  "n_demand_act": 699,
+  "mismatch_act_pct": 7.508543570203725,
+  "n_neg": 0,
+  "soc_feasible_eps": 15,
+  "soc_worst_ep_pct": 39.89857492905927
+}

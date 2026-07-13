@@ -1,0 +1,15 @@
+{
+  "model": "persistence",
+  "n": 108,
+  "WAPE": 0.11135303841250342,
+  "R2": 0.9645836539463618,
+  "nd_WAPE": 0.018097693877247637,
+  "bal_own_max_mw": 0.0002919073294833652,
+  "n_demand_own": 0,
+  "n_demand_act": 99,
+  "mismatch_act_pct": 1.8097691185600338,
+  "n_neg": 0,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 45.370370370370374,
+  "soc_worst_day_pct": 721.220717009009
+}

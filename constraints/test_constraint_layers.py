@@ -154,6 +154,73 @@ def test_rayen_gradients():
     print(f"  rayen gradients: {sum(g > 0 for g in grads)}/{len(grads)} params nonzero")
 
 
+def _rayenfd(base_arch, c, seed):
+    torch.manual_seed(seed)
+    return M.make_rayen(base_arch, c["xs"], c["ys"], c["ramp_up"], c["ramp_dn"],
+                        nd_feat_idx=c["nd_idx"], n_features=c["n_features"],
+                        fix_demand=True).eval()
+
+
+def _nd_in(c, X=None):
+    """nd(t-1) read off the window's last step, in MW (= the pinned plane RHS)."""
+    X = c["X"] if X is None else X
+    return (X[:, -1, c["nd_idx"]].numpy().astype(np.float64)
+            * c["xs"].scale_[c["nd_idx"]] + c["xs"].mean_[c["nd_idx"]])
+
+
+def _assert_feasible_fixedd(p_mw, d_star, c, tag):
+    """Fixed-D head: balance is vs the pinned nd (d_star), not a predicted D."""
+    bal = np.abs(p_mw @ SIGN - d_star).max()
+    assert bal <= BAL_TOL, f"{tag}: balance residual vs pinned nd {bal:.4f} MW"
+    delta = p_mw - c["prev"]
+    up = (delta - (c["ramp_up"] + RAMP_TOL)).max()
+    dn = (-delta - (c["ramp_dn"] + RAMP_TOL)).max()
+    assert up <= 0 and dn <= 0, f"{tag}: ramp excess up={up:.3f} dn={dn:.3f} MW"
+    assert p_mw.min() >= -NEG_TOL, f"{tag}: negative dispatch {p_mw.min():.3f} MW"
+    print(f"  {tag}: bal_max={bal:.4f} MW, ramp/floor OK (min P={p_mw.min():.4f})")
+
+
+def test_rayenfd_random_weights():
+    c = _ctx()
+    for arch in ("lstm", "itransformer"):
+        for seed in (0, 1):
+            with torch.no_grad():
+                out = _rayenfd(arch, c, seed)(c["X"])          # (N,6) y-scaled dispatch
+            p_mw = c["ys"].inverse_transform(out.numpy()).astype(np.float64)
+            _assert_feasible_fixedd(p_mw, _nd_in(c), c, f"rayenfd/{arch}/s{seed}")
+
+
+def test_rayenfd_responds():
+    """Structural response: bumping the pinned nd(t-1) by +D MW must shift the
+    signed dispatch sum by ~+D MW (up to fleet ramp capacity) -- the property
+    RayenHead lacks because it co-predicts D_t."""
+    c = _ctx()
+    model = _rayenfd("itransformer", c, 0)
+    nd_in = _nd_in(c)
+    with torch.no_grad():
+        base = c["ys"].inverse_transform(model(c["X"]).numpy()).astype(np.float64) @ SIGN
+    D = 150.0
+    Xp = c["X"].clone()
+    Xp[:, -1, c["nd_idx"]] += float(D / c["xs"].scale_[c["nd_idx"]])   # +D MW at the last step
+    with torch.no_grad():
+        resp = c["ys"].inverse_transform(model(Xp).numpy()).astype(np.float64) @ SIGN
+    moved = np.median(resp - base)
+    bal_new = np.median(np.abs(resp - (nd_in + D)))
+    assert abs(moved - D) < 5.0, f"median response {moved:.2f} MW != +{D} MW bump"
+    assert bal_new < BAL_TOL, f"median balance at shifted plane {bal_new:.3f} MW"
+    print(f"  rayenfd response: median ΔΣ={moved:.2f} MW for +{D} MW demand (want ~{D}); "
+          f"balance@new-plane p50={bal_new:.4f} MW")
+
+
+def test_rayenfd_gradients():
+    c = _ctx()
+    model = _rayenfd("lstm", c, 0).train()
+    model(c["X"][:32]).pow(2).mean().backward()
+    n = sum((p.grad is not None and p.grad.abs().sum().item() > 0) for p in model.parameters())
+    assert n > 2, "no gradients flow through RayenHeadFixedD"
+    print(f"  rayenfd gradients: {n} params nonzero")
+
+
 def test_dr_random_weights():
     c = _ctx()
     for arch in ("lstm", "itransformer"):

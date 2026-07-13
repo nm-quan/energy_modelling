@@ -188,12 +188,18 @@ findings from the actuals row, both harness TODOs:
    frozen raw) + box_tol=0.1 MW noise floor in constraint_report (float32
    scaler round trips turn exact zeros into +-1e-4 MW). Result: actuals AND
    persistence n_neg = 0, WAPE unchanged.
-2. **SOC feasibility over the 6-month hist test window fails even for the
-   ACTUALS** (swing 115% of nameplate): eta_rt was calibrated on last365 and
-   small eta/capacity errors accumulate over 52k steps. SOC must move to
-   per-day/per-week segment windows + era-recalibrated eta before hist SOC
-   numbers mean anything (metric-design insight now mandatory, was #7 in the
-   pre-registration discussion).
+2. RESOLVED (2026-07-12): the "SOC fails even for the ACTUALS" reading (swing
+   115% of nameplate) was a **metric artifact**, not physics. `constraint_report`
+   measured cumulative reservoir swing over one continuous 6-month segment
+   (`seg` broke on data gaps only), so a ~1% eta bias drifts unbounded over 52k
+   steps. Batteries cycle daily, so the physical feasibility unit is the per-day
+   swing. Fix: `constraint_report(soc_period="day")` (default) breaks segments at
+   calendar-day boundaries too. Result on hist actuals: **feasible every one of
+   186 days**, worst-day swing 79.4% of nameplate (Jan 1 summer peak), SOC0
+   window [21%, 42%]. eta needed NO recalibration — the preprocessed table is
+   already the hist era (whole-table == hist-test-era == 0.8341); segmentation
+   was the entire fix. `soc_period="window"` restores the legacy 114.7% number.
+   Diagnostic: scratchpad/soc_diag.py.
 3. **Era caps**: actuals exceed the last365-era CONSTRAINT.md caps on 46 cells
    in the 2026 test window (new records: Jan peak, Jun winter). Harness needs
    caps recomputed from the training era (with the time-varying-caps handling

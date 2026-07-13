@@ -1,0 +1,15 @@
+{
+  "model": "itransformer_task7",
+  "n": 108,
+  "WAPE": 0.12813063538413336,
+  "R2": 0.9710953837601557,
+  "nd_WAPE": 0.02183896557491829,
+  "bal_own_max_mw": 138.45669944310794,
+  "n_demand_own": 78,
+  "n_demand_act": 97,
+  "mismatch_act_pct": 1.9017299766063516,
+  "n_neg": 74,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 47.22222222222222,
+  "soc_worst_day_pct": 683.4753917210119
+}

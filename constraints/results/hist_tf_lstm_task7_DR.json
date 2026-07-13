@@ -1,0 +1,17 @@
+{
+  "model": "lstm_task7+DR",
+  "n": 108,
+  "WAPE": 0.24366608910948495,
+  "R2": 0.9380401668957589,
+  "nd_WAPE": 0.024890433986324872,
+  "bal_own_max_mw": 0.0007171630859375,
+  "n_demand_own": 0,
+  "n_demand_act": 97,
+  "mismatch_act_pct": 2.489044772169033,
+  "n_neg": 0,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 47.22222222222222,
+  "soc_worst_day_pct": 663.0662177250846,
+  "alpha_frac_active": 0.6759259259259259,
+  "alpha_max": 0.39057159423828125
+}

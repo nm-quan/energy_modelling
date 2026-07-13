@@ -648,20 +648,150 @@ class RayenHead(nn.Module):
         return torch.cat([d_scaled, gen_scaled], dim=1)               # (B, 7)
 
 
+class RayenHeadFixedD(nn.Module):
+    """RAYEN hard-constraint layer with the demand plane PINNED to the exogenous
+    net demand read off the input window (nd(t-1)), instead of a co-predicted
+    D_t output (contrast RayenHead).
+
+    Why. In RayenHead the balance plane SIGN.P = D_t has D_t as a FREE network
+    output (the 7-dim direction moves it along r[0]), so the net co-predicts
+    demand and dispatch: balance holds "vs itself" (@own=0) but a demand-side
+    input shift never *forces* the fleet to move -- the collapse-frozen backbone
+    just re-forecasts its own D_t (plan.md note 4; findings.md non-response).
+    Here D is not predicted: d* = nd(t-1) is read straight from the window (like
+    DemandAnchoredHead / anchor(persistence)), so the plane MOVES with the
+    exogenous demand and the dispatch is forced onto it. Response is structural
+    and cannot decay with training, while the RAYEN ramp + floor guarantees are
+    retained. Backbone emits 7 RAW outputs: 6 direction + 1 scalar s.
+
+    Construction (per step, MW):
+      p     = prev dispatch (eps-interior)                    # persistence anchor, (B,6)
+      d*    = nd(t-1) read from the window                    # (B,) plane RHS
+      delta = d* - SIGN.p                                     # (B,) residual to the plane
+      p_on  = p + m,  m = ramp/floor-limited move closing delta  # FORCED normal move = the response
+      r     = SIGN-tangential backbone direction (sum-preserving)
+      y     = p_on + sigmoid(s) * alpha* * r                  # FREE mix reallocation
+
+    delta == 0 in-distribution teacher-forced (data identity nd == SIGN.P), so
+    p_on == p and this reduces to a ramp/floor-feasible mix step exactly like the
+    stationary RAYEN head. In the closed-loop free window delta is the exogenous
+    5-min demand *change* (the ~197 MW supply/demand-side offset cancels in the
+    delta); it is distributed across channels by ramp headroom and clipped to the
+    ramps. When a demand jump exceeds the fleet's one-step ramp capacity the
+    reprojection is ramp-bound and a residual imbalance remains (physically
+    unavoidable, reported) -- ramps win over balance, the correct priority for a
+    hard physical wall. The free step then uses only the *remaining* ramp budget,
+    so the total move p -> y stays within ramps.
+    """
+
+    def __init__(self, base: nn.Module, x_mean, x_scale, y_mean, y_scale,
+                 ramp_up, ramp_dn, nd_feat_idx: int = 6,
+                 include_floor: bool = True, eps_mw: float = 0.5,
+                 passthrough_idx=None):
+        super().__init__()
+        self.base = base
+        self.nd_feat_idx = nd_feat_idx
+        self.include_floor = include_floor
+        self.eps_mw = eps_mw
+        self.register_buffer("_sign", torch.tensor([1., 1., 1., 1., -1., 1.]))
+        # passthrough channels are frozen at persistence: excluded from BOTH the
+        # forced reprojection and the tangential mix step, so the flexible
+        # channels carry balance + response. MSE barely penalises a small
+        # inflexible unit (gas_steam), so leaving it free lets the tangential
+        # step shove it around (WAPE 0.036 -> 0.26). Same fix as the DA-head's
+        # rescale_idx=nosteam (see da-head / inference-anchor findings).
+        free = torch.ones(6)
+        if passthrough_idx is not None:
+            free[list(passthrough_idx)] = 0.0
+        self.register_buffer("_free", free)                          # 1 flexible, 0 passthrough
+        self.register_buffer("_sign_free", torch.tensor([1., 1., 1., 1., -1., 1.]) * free)
+        self.register_buffer("_feat_idx", torch.tensor(TARGET_FEAT_IDX, dtype=torch.long))
+        self.register_buffer("_x_mean", torch.tensor(np.asarray(x_mean)[TARGET_FEAT_IDX], dtype=torch.float32))
+        self.register_buffer("_x_scale", torch.tensor(np.asarray(x_scale)[TARGET_FEAT_IDX], dtype=torch.float32))
+        self.register_buffer("_nd_mean", torch.tensor(float(np.asarray(x_mean)[nd_feat_idx])))
+        self.register_buffer("_nd_scale", torch.tensor(float(np.asarray(x_scale)[nd_feat_idx])))
+        self.register_buffer("_y_mean", torch.tensor(np.asarray(y_mean), dtype=torch.float32))
+        self.register_buffer("_y_scale", torch.tensor(np.asarray(y_scale), dtype=torch.float32))
+        self.register_buffer("_r_up", torch.tensor(np.asarray(ramp_up), dtype=torch.float32))
+        self.register_buffer("_r_dn", torch.tensor(np.asarray(ramp_dn), dtype=torch.float32))
+        self.r_gain = nn.Parameter(torch.tensor(0.05))
+        self.s_bias = nn.Parameter(torch.tensor(-4.0))
+
+    def forward(self, x):
+        out = self.base(x)                                            # (B,7) raw
+        r = out[:, :6] * self.r_gain                                  # (B,6) tangential direction
+        s = out[:, 6] + self.s_bias                                   # (B,)
+
+        prev = x[:, -1, :].index_select(1, self._feat_idx)            # (B,6) x-scaled
+        prev_mw = prev * self._x_scale + self._x_mean
+        # free channels get an eps-interior anchor (needed for the ramp-down floor
+        # wall); passthrough channels take no walls, so anchor them at raw
+        # persistence -- the 0.5 MW eps is pure error on an often-idle peaker.
+        p = torch.where(self._free.bool(), prev_mw.clamp_min(self.eps_mw), prev_mw.clamp_min(0.0))
+        d_star = x[:, -1, self.nd_feat_idx] * self._nd_scale + self._nd_mean   # (B,) MW
+
+        # --- forced ramp/floor-limited move onto the plane SIGN.P = d_star ---
+        delta = d_star - (p * self._sign).sum(-1)                     # (B,) residual to close
+        pos = (delta > 0).unsqueeze(-1)                               # (B,1) raising the signed sum?
+        floor_cap = torch.minimum(self._r_dn.expand_as(p), p)        # down-move bounded by ramp AND floor
+        # per-channel capacity to raise / lower the SIGNED sum within ramps+floor
+        up_cap = torch.where(self._sign > 0, self._r_up.expand_as(p), floor_cap)
+        dn_cap = torch.where(self._sign > 0, floor_cap, self._r_up.expand_as(p))
+        cap = torch.where(pos, up_cap, dn_cap) * self._free           # (B,6) capacity toward delta, >=0
+        tot = cap.sum(-1)                                             # (B,) (passthrough excluded)
+        frac = torch.where(tot > 1e-9, (delta.abs() / tot.clamp_min(1e-9)).clamp(max=1.0),
+                           torch.zeros_like(delta))
+        # signed-sum contribution per channel -> P-space move (respect channel sign & direction)
+        dir_move = torch.where(pos, self._sign, -self._sign)         # (B,6) P-space sign of the move
+        m = cap * frac.unsqueeze(-1) * dir_move                      # (B,6) reprojection move
+        p_on = p + m
+
+        # remaining ramp/floor budget for the free step (keeps total move within ramps)
+        rem_up = (self._r_up - m.clamp_min(0.0)).clamp_min(0.0)
+        rem_dn = torch.minimum(self._r_dn - (-m).clamp_min(0.0), p_on).clamp_min(0.0)
+
+        # --- free tangential mix step (sum-preserving over flexible channels) ---
+        r = r * self._free                                            # freeze passthrough at persistence
+        if self.include_floor:
+            r = r.masked_fill((p_on <= self.eps_mw + 1e-6) & (r < 0), 0.0)
+        # project onto the reduced plane (orthogonal to SIGN over free channels);
+        # sign_free is 0 on passthrough so r stays 0 there and Sum_free is preserved
+        r = r - (r * self._sign_free).sum(-1, keepdim=True) / (self._sign_free * self._sign_free).sum() * self._sign_free
+        big = torch.full_like(r, 1e9)
+        wall_up = torch.where(r > 1e-9, rem_up / r.clamp_min(1e-9), big)
+        wall_dn = torch.where(r < -1e-9, rem_dn / (-r).clamp_min(1e-9), big)
+        alpha = torch.minimum(wall_up, wall_dn).amin(dim=1)
+        alpha = torch.where(alpha >= 1e9, torch.zeros_like(alpha), alpha)
+
+        y = p_on + torch.sigmoid(s).unsqueeze(-1) * alpha.unsqueeze(-1) * r
+        return (y - self._y_mean) / self._y_scale                     # (B,6) y-scaled
+
+
 def make_rayen(base_arch: str, x_scaler, y_scaler, ramp_up, ramp_dn,
                nd_feat_idx: int = 6, n_features: int = 17,
-               include_floor: bool = True) -> nn.Module:
+               include_floor: bool = True, fix_demand: bool = False,
+               passthrough_idx=(2,)) -> nn.Module:
     """lstm_rayen: plain LSTM backbone. itransformer_rayen: input-RevIN
-    iTransformer with output denorm off. Both emit 8 raw outputs."""
+    iTransformer with output denorm off. fix_demand=False emits 8 raw outputs
+    (D_t + 6 dir + s, RayenHead); fix_demand=True emits 7 (6 dir + s,
+    RayenHeadFixedD -- D is pinned to nd(t-1), not predicted).
+    passthrough_idx (fix_demand only): TARGETS indices frozen at persistence;
+    default (2,) = gas_steam, the inflexible peaker WAPE regresses on."""
+    n_out = 7 if fix_demand else 8
     if base_arch == "lstm":
-        base = LSTMForecaster(n_features=n_features, n_targets=8, hidden=128, layers=2, dropout=0.2)
+        base = LSTMForecaster(n_features=n_features, n_targets=n_out, hidden=128, layers=2, dropout=0.2)
     elif base_arch == "itransformer":
-        base = iTransformer(seq_len=288, n_features=n_features, n_targets=8,
-                            target_feat_idx=[0, 3, 1, 2, 4, 5, 6, 7],
+        tfi = [0, 3, 1, 2, 4, 5, 6] if fix_demand else [0, 3, 1, 2, 4, 5, 6, 7]
+        base = iTransformer(seq_len=288, n_features=n_features, n_targets=n_out,
+                            target_feat_idx=tfi,
                             d_model=128, n_heads=4, n_layers=3, d_ff=256, dropout=0.1,
                             use_revin=True, revin_out=False)
     else:
         raise ValueError(f"unsupported rayen base {base_arch!r}")
+    if fix_demand:
+        return RayenHeadFixedD(base, x_scaler.mean_, x_scaler.scale_, y_scaler.mean_, y_scaler.scale_,
+                               ramp_up, ramp_dn, nd_feat_idx=nd_feat_idx, include_floor=include_floor,
+                               passthrough_idx=passthrough_idx)
     return RayenHead(base, x_scaler.mean_, x_scaler.scale_, y_scaler.mean_, y_scaler.scale_,
                      ramp_up, ramp_dn, nd_feat_idx=nd_feat_idx, include_floor=include_floor)
 

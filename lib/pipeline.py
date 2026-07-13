@@ -53,6 +53,23 @@ DATASETS = {
         # net_demand is computed AFTER, so the balance identity stays exact.
         clip_targets=True,
     ),
+    # Short recent window for the AEMO future-demand experiment (future_demand/).
+    # AEMO's NEMWEB P5MIN archive (the only source of a real AEMO demand
+    # forecast -- OpenElectricity's API has no forecast metric) only retains
+    # ~13 months, so this is its own small dataset rather than a slice of
+    # "hist". 45 days, 2026-05-29 -> 2026-07-12 inclusive (5-min), split
+    # ~69/15.5/15.5 by date. demand_fcst is joined in from the P5MIN pull
+    # (script/pull_p5min_demand_fcst.py) when present -- see build_table().
+    "future_demand_45d": dict(
+        market="vic_market_20260529_20260713.parquet",
+        generation="vic_generation_20260529_20260713.parquet",
+        interconnector="vic_interconnector_20260529_20260713.parquet",
+        demand_fcst="vic_p5min_demand_fcst_20260529_20260712.parquet",
+        train_end=pd.Timestamp("2026-06-28 23:55:00+10:00"),
+        val_end=pd.Timestamp("2026-07-05 23:55:00+10:00"),
+        vic_island_demand=True,
+        clip_targets=True,
+    ),
 }
 
 # Legacy module-level split constants (many scripts import these); they describe
@@ -127,6 +144,16 @@ def build_table(resolution: str = "1h", dataset: str = "last365") -> pd.DataFram
         + _col("battery_discharging") - _col("battery_charging")
     )
 
+    # AEMO's own 1-step-ahead demand forecast (script/pull_p5min_demand_fcst.py),
+    # only present on datasets that declare it (see future_demand_45d).
+    if cfg.get("demand_fcst"):
+        fc = pd.read_parquet(DATA_DIR / cfg["demand_fcst"])
+        fc = (fc.assign(interval=pd.to_datetime(fc["interval"]))
+                .set_index("interval").sort_index()["demand_fcst_mw"])
+        if resolution != "5min":
+            fc = fc.resample(resolution).mean()
+        df["demand_fcst"] = fc.reindex(df.index)
+
     # calendar features (cyclical)
     idx = df.index
     hour = idx.hour + idx.minute / 60.0
@@ -159,6 +186,9 @@ def select_features(df: pd.DataFrame, input_mode: str = "total_all") -> list[str
       'net_dispatch_totdem' -> net_dispatch + total operational demand_mw as an
                                extra exogenous feature (for channel-mixing models
                                and the demand/price simulation).
+      'net_dispatch_totdem_fcst' -> net_dispatch_totdem + AEMO's own 1-step-ahead
+                               demand forecast (future_demand_45d only; see
+                               build_table's demand_fcst join).
     """
     extra: list[str] = []
     if input_mode == "total_all":
@@ -171,6 +201,10 @@ def select_features(df: pd.DataFrame, input_mode: str = "total_all") -> list[str
         energy_hist = [c for c in DISPATCHABLE_HIST if c in df.columns]
         demand_col = "net_demand"
         extra = ["demand_mw"]
+    elif input_mode == "net_dispatch_totdem_fcst":
+        energy_hist = [c for c in DISPATCHABLE_HIST if c in df.columns]
+        demand_col = "net_demand"
+        extra = ["demand_mw", "demand_fcst"]
     elif input_mode == "total_dispatch":
         energy_hist = [c for c in DISPATCHABLE_HIST if c in df.columns]
         demand_col = "demand_mw"

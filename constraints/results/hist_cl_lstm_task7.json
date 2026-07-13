@@ -1,0 +1,14 @@
+{
+  "model": "lstm_task7",
+  "n": 720,
+  "n_episodes": 15,
+  "cl_WAPE": 0.5965739183911278,
+  "n_ramp": 0,
+  "ramp_excess_pct": 0.0,
+  "bal_own_max_mw": 78.87813179677187,
+  "n_demand_act": 663,
+  "mismatch_act_pct": 2.2740677667882006,
+  "n_neg": 926,
+  "soc_feasible_eps": 15,
+  "soc_worst_ep_pct": 13.620975828099121
+}

@@ -1,0 +1,15 @@
+{
+  "model": "lstm_rayen",
+  "n": 108,
+  "WAPE": 0.13188998376370864,
+  "R2": 0.9642486266786575,
+  "nd_WAPE": 0.01799645538097693,
+  "bal_own_max_mw": 0.0005321502685546875,
+  "n_demand_own": 0,
+  "n_demand_act": 100,
+  "mismatch_act_pct": 1.7996466987766853,
+  "n_neg": 0,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 45.370370370370374,
+  "soc_worst_day_pct": 694.3681252693757
+}

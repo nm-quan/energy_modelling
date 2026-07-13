@@ -1,0 +1,15 @@
+{
+  "model": "itransformer_rayen",
+  "n": 108,
+  "WAPE": 0.12097022934540543,
+  "R2": 0.9682130101890473,
+  "nd_WAPE": 0.018094687259780022,
+  "bal_own_max_mw": 0.0008028745651245117,
+  "n_demand_own": 0,
+  "n_demand_act": 100,
+  "mismatch_act_pct": 1.809469412288669,
+  "n_neg": 0,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 48.148148148148145,
+  "soc_worst_day_pct": 721.2728019088592
+}

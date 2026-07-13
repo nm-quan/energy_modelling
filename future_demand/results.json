@@ -1,0 +1,161 @@
+{
+  "dataset": "future_demand_45d",
+  "arch": "lstm",
+  "recipe": {
+    "epochs": 40,
+    "patience": 10,
+    "batch": 128,
+    "lr": 0.0001,
+    "weight_decay": 1e-05
+  },
+  "seed": 0,
+  "baseline": {
+    "input_mode": "net_dispatch_totdem",
+    "n_features": 17,
+    "feat_cols": [
+      "hydro",
+      "gas_steam",
+      "gas_ocgt",
+      "coal_brown",
+      "battery_charging",
+      "battery_discharging",
+      "net_demand",
+      "demand_mw",
+      "price_aud_per_mwh",
+      "hour_sin",
+      "hour_cos",
+      "dow_sin",
+      "dow_cos",
+      "season_sin",
+      "season_cos",
+      "is_weekend",
+      "is_peak"
+    ],
+    "seed": 0,
+    "epochs_run": 40,
+    "best_val_mse": 0.7167921662330627,
+    "secs": 347.3911590576172,
+    "metrics": {
+      "per_target": {
+        "hydro": {
+          "MAE": 464.3360595703125,
+          "RMSE": 555.0275268554688,
+          "WAPE": 0.761605262967878,
+          "R2": -0.07288699170613988
+        },
+        "coal_brown": {
+          "MAE": 526.6822509765625,
+          "RMSE": 552.5288696289062,
+          "WAPE": 0.12252266912806377,
+          "R2": 0.06949784534308467
+        },
+        "gas_steam": {
+          "MAE": 47.11933898925781,
+          "RMSE": 95.65858459472656,
+          "WAPE": 1.7525903173358548,
+          "R2": 0.013308896498923861
+        },
+        "gas_ocgt": {
+          "MAE": 245.84771728515625,
+          "RMSE": 274.1238098144531,
+          "WAPE": 0.7204403353936125,
+          "R2": 0.1637138243472629
+        },
+        "battery_charging": {
+          "MAE": 159.2311553955078,
+          "RMSE": 202.683349609375,
+          "WAPE": 0.9231876446255293,
+          "R2": -0.005751818792642638
+        },
+        "battery_discharging": {
+          "MAE": 154.99240112304688,
+          "RMSE": 198.58761596679688,
+          "WAPE": 1.0521867859448157,
+          "R2": 0.256624890969267
+        }
+      },
+      "average": {
+        "MAE": 266.36815388997394,
+        "RMSE": 313.1016260782878,
+        "WAPE": 0.8887555025659589,
+        "R2": 0.07075110777662598
+      }
+    }
+  },
+  "with_future_demand": {
+    "input_mode": "net_dispatch_totdem_fcst",
+    "n_features": 18,
+    "feat_cols": [
+      "hydro",
+      "gas_steam",
+      "gas_ocgt",
+      "coal_brown",
+      "battery_charging",
+      "battery_discharging",
+      "net_demand",
+      "demand_mw",
+      "demand_fcst",
+      "price_aud_per_mwh",
+      "hour_sin",
+      "hour_cos",
+      "dow_sin",
+      "dow_cos",
+      "season_sin",
+      "season_cos",
+      "is_weekend",
+      "is_peak"
+    ],
+    "seed": 0,
+    "epochs_run": 40,
+    "best_val_mse": 0.5994324162602425,
+    "secs": 334.0615770816803,
+    "metrics": {
+      "per_target": {
+        "hydro": {
+          "MAE": 399.0054626464844,
+          "RMSE": 474.4557800292969,
+          "WAPE": 0.6544498278285488,
+          "R2": 0.2159993087528561
+        },
+        "coal_brown": {
+          "MAE": 469.92950439453125,
+          "RMSE": 496.33172607421875,
+          "WAPE": 0.10932021925481657,
+          "R2": 0.24915281576154558
+        },
+        "gas_steam": {
+          "MAE": 48.44612503051758,
+          "RMSE": 87.52046966552734,
+          "WAPE": 1.801939819192362,
+          "R2": 0.17405221955967276
+        },
+        "gas_ocgt": {
+          "MAE": 228.3844451904297,
+          "RMSE": 258.7862243652344,
+          "WAPE": 0.6692653639248183,
+          "R2": 0.2546784324594842
+        },
+        "battery_charging": {
+          "MAE": 144.28245544433594,
+          "RMSE": 192.97804260253906,
+          "WAPE": 0.8365183752834993,
+          "R2": 0.0882611366924535
+        },
+        "battery_discharging": {
+          "MAE": 136.5769805908203,
+          "RMSE": 192.59686279296875,
+          "WAPE": 0.9271711855128654,
+          "R2": 0.3007989341261762
+        }
+      },
+      "average": {
+        "MAE": 237.77082888285318,
+        "RMSE": 283.7781842549642,
+        "WAPE": 0.8331107984994849,
+        "R2": 0.21382380789203137
+      }
+    }
+  },
+  "wape_delta": -0.05564470406647404,
+  "wape_delta_pct": -6.260968726024216
+}
