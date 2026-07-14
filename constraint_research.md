@@ -238,6 +238,22 @@ Pilot findings (noptrain checkpoint + retrofit, CPU, full test):
 - test_constraint_layers.py extended run: 9/9 pass incl. rayenfd feasibility
   at random weights and structural +150 MW response.
 
+Full sweep verdicts (study_summary.md; increase g in {5,10,20,30} + reshape):
+
+- **P2 PASS**: rayenfd captures +1.029 of the simulated increase at EVERY g
+  with track p50 74-91 MW and **0 free-window ramp violations** — vs
+  anchor(persistence) same capture but 387 free-window ramps (rescale ignores
+  ramps) and rayen/persistence 0 capture. Response within physics: achieved.
+- P1 FAIL (ocgt +0.0204 > +0.01 channel tol; macro +0.0039 passes) and
+  P3 FAIL (SOC worst day crosses 100% at g>=10, CL stress 0/15) — both trace
+  to the same cause: the retrofit backbone was never trained with this head
+  (s_bias -4 start, mix step inert), so the ramp-headroom reprojection dumps
+  the delta into the batteries. -> RUN_RETRAIN=True; notebook step 3 retrains
+  *_rayenfd with passthrough baked in. If retraining alone doesn't fix P3,
+  next head refinement: cap the battery share of the forced move.
+- Open question for the retrain eval: rayenfd's ~90 TF-interior ramp cells
+  (0.03% of cells; seam and free are understood, these aren't yet).
+
 ## Conventions
 
 - Scripts: `constraints/stage<N>_<what>.py`; one JSON per run in
