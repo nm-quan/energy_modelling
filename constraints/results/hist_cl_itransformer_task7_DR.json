@@ -1,16 +1,16 @@
 {
   "model": "itransformer_task7+DR",
-  "n": 720,
+  "n": 4320,
   "n_episodes": 15,
-  "cl_WAPE": 114.66537220863339,
+  "cl_WAPE": 294.06826287921643,
   "n_ramp": 0,
   "ramp_excess_pct": 0.0,
-  "bal_own_max_mw": 0.010380881758464966,
-  "n_demand_act": 720,
-  "mismatch_act_pct": 505.8595617845331,
+  "bal_own_max_mw": 0.1019580812426284,
+  "n_demand_act": 4320,
+  "mismatch_act_pct": 3141.381149886047,
   "n_neg": 0,
-  "soc_feasible_eps": 15,
-  "soc_worst_ep_pct": 26.880214017459704,
-  "alpha_frac_active": 0.9861111111111112,
-  "alpha_max": 0.9954192042350769
+  "soc_feasible_eps": 0,
+  "soc_worst_ep_pct": 628.7568635506441,
+  "alpha_frac_active": 0.9976851851851852,
+  "alpha_max": 0.9992918968200684
 }

@@ -206,6 +206,38 @@ findings from the actuals row, both harness TODOs:
    the 5.6x battery growth already requires); until then 46 is the actuals-row
    floor for n_cap on hist.
 
+## Bottleneck study (2026-07-14, colab/study_bottlenecks.ipynb)
+
+Three problems -> A/B/C ladders, gated by `constraints/study_report.py`
+(-> results/study_{summary.md,verdicts.json}, figure/study_tradeoff.png):
+
+1. **WAPE vs persistence**: A = gas_steam passthrough on RayenHeadFixedD (a
+   zero-retrain buffer retrofit, `--rayenfd-steam-pt`); B = retrain rayenfd.
+2. **Demand response**: A = pin the balance plane to exogenous nd(t-1)
+   (RayenHeadFixedD) + teacher-force the *scenario* net_demand through the free
+   window (`demand_simulation/study_shift.py`, parquet-free: frames built from
+   prepared.npz, supply-delta nd keeps the input in-distribution and kills the
+   ~197 MW definition-swap confound); B = retrain; C = inference anchor.
+3. **Battery**: A = per-day SOC segmentation in every protocol (window-cumsum
+   drift was the artifact); B = stateful closed-loop clip; C = telemetry-subset
+   recalibration.
+
+Pilot findings (noptrain checkpoint + retrofit, CPU, full test):
+
+- P1: retrofit takes itransformer_rayenfd 0.1490 -> **0.1123 macro (+0.0039 vs
+  persistence, gate PASS)**; steam restored to 0.0360 exactly. But gas_ocgt
+  regressed 0.0343 -> 0.0547 (channel gate FAIL) -> ladder escalates to B
+  (retrain with passthrough baked in so the backbone learns around it).
+- CL stress: rayenfd is the ONLY model that tracks demand closed-loop
+  (mismatch_act 1.88% = the 5-min nd ramp, vs 23% for persistence/rayen) --
+  the mechanism works. Cost surfaced: the ramp-headroom-proportional
+  reprojection routes most of the demand delta into the batteries (largest
+  headroom) -> per-episode SOC infeasible 0/15 and cl_WAPE 1.65. Candidate B
+  refinements beyond retraining: cap the battery share of the forced move /
+  passthrough batt_chg in the reprojection.
+- test_constraint_layers.py extended run: 9/9 pass incl. rayenfd feasibility
+  at random weights and structural +150 MW response.
+
 ## Conventions
 
 - Scripts: `constraints/stage<N>_<what>.py`; one JSON per run in

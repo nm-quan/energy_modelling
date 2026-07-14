@@ -1,15 +1,23 @@
 {
   "model": "itransformer_task7",
-  "n": 108,
-  "WAPE": 0.12813063538413336,
-  "R2": 0.9710953837601557,
-  "nd_WAPE": 0.02183896557491829,
-  "bal_own_max_mw": 138.45669944310794,
-  "n_demand_own": 78,
-  "n_demand_act": 97,
-  "mismatch_act_pct": 1.9017299766063516,
-  "n_neg": 74,
+  "n": 53568,
+  "WAPE": 0.1313239643748693,
+  "R2": 0.9682689586344866,
+  "per_target_WAPE": {
+    "hydro": 0.07771958400788839,
+    "coal_brown": 0.009689955025344267,
+    "gas_steam": 0.08520830975619605,
+    "gas_ocgt": 0.062422329269554884,
+    "battery_charging": 0.26270765039503696,
+    "battery_discharging": 0.29019595779519525
+  },
+  "nd_WAPE": 0.021114800261892358,
+  "bal_own_max_mw": 254.64565018501617,
+  "n_demand_own": 38507,
+  "n_demand_act": 48773,
+  "mismatch_act_pct": 1.9786298132526614,
+  "n_neg": 35131,
   "n_ramp_vs_prev": 0,
-  "soc_day_feasible_pct": 47.22222222222222,
-  "soc_worst_day_pct": 683.4753917210119
+  "soc_day_feasible_pct": 100.0,
+  "soc_worst_day_pct": 76.23335396658503
 }
