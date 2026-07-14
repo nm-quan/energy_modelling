@@ -687,12 +687,26 @@ class RayenHeadFixedD(nn.Module):
     def __init__(self, base: nn.Module, x_mean, x_scale, y_mean, y_scale,
                  ramp_up, ramp_dn, nd_feat_idx: int = 6,
                  include_floor: bool = True, eps_mw: float = 0.5,
-                 passthrough_idx=None):
+                 passthrough_idx=None, alloc_weights=None):
         super().__init__()
         self.base = base
         self.nd_feat_idx = nd_feat_idx
         self.include_floor = include_floor
         self.eps_mw = eps_mw
+        # SOC-fix 1 (study): allocation preference for the forced reprojection.
+        # None/ones = legacy behaviour (proportional to ramp headroom alone,
+        # which hands the batteries ~54% of every delta). MinT-style weights
+        # (inverse error variance / energy share) shift corrections onto the
+        # channels that actually absorb them in reality. Non-persistent so
+        # existing checkpoints load unchanged.
+        w = torch.ones(6) if alloc_weights is None else \
+            torch.as_tensor(alloc_weights, dtype=torch.float32)
+        self.register_buffer("_alloc_w", w, persistent=False)
+        # SOC-fix 2 (study): stateful shield hook. A closed-loop driver may set
+        # this to a (B, 2) tensor of battery LEVEL caps [chg_max_mw, dis_max_mw]
+        # derived from its tracked state of charge before each forward; the
+        # head then respects them as extra walls (None = off).
+        self.batt_room: torch.Tensor | None = None
         self.register_buffer("_sign", torch.tensor([1., 1., 1., 1., -1., 1.]))
         # passthrough channels are frozen at persistence: excluded from BOTH the
         # forced reprojection and the tangential mix step, so the flexible
@@ -730,25 +744,52 @@ class RayenHeadFixedD(nn.Module):
         p = torch.where(self._free.bool(), prev_mw.clamp_min(self.eps_mw), prev_mw.clamp_min(0.0))
         d_star = x[:, -1, self.nd_feat_idx] * self._nd_scale + self._nd_mean   # (B,) MW
 
+        # SOC shield (if armed): battery LEVEL caps [chg, dis] from the driver's
+        # tracked state of charge. Two effects, both spending ramp budget:
+        # (1) forced ramp-limited descent when the current level already exceeds
+        #     its room (the overshoot is then bounded by the ramp-down envelope,
+        #     ~1-2 steps -- drivers add a small margin to the room for strictness);
+        # (2) up-walls so the level can never grow past the room.
+        r_up_eff = self._r_up.expand_as(p)
+        r_dn_eff = self._r_dn.expand_as(p)
+        if self.batt_room is not None:
+            room = self.batt_room.to(p.dtype)
+            p = p.clone(); r_up_eff = r_up_eff.clone(); r_dn_eff = r_dn_eff.clone()
+            for j, ch in enumerate((4, 5)):
+                down = torch.minimum((p[:, ch] - room[:, j]).clamp_min(0.0), r_dn_eff[:, ch])
+                p[:, ch] = p[:, ch] - down
+                r_dn_eff[:, ch] = r_dn_eff[:, ch] - down
+                r_up_eff[:, ch] = torch.minimum(r_up_eff[:, ch],
+                                                (room[:, j] - p[:, ch]).clamp_min(0.0))
+
         # --- forced ramp/floor-limited move onto the plane SIGN.P = d_star ---
         delta = d_star - (p * self._sign).sum(-1)                     # (B,) residual to close
         pos = (delta > 0).unsqueeze(-1)                               # (B,1) raising the signed sum?
-        floor_cap = torch.minimum(self._r_dn.expand_as(p), p)        # down-move bounded by ramp AND floor
+        floor_cap = torch.minimum(r_dn_eff, p)                       # down-move bounded by ramp AND floor
         # per-channel capacity to raise / lower the SIGNED sum within ramps+floor
-        up_cap = torch.where(self._sign > 0, self._r_up.expand_as(p), floor_cap)
-        dn_cap = torch.where(self._sign > 0, floor_cap, self._r_up.expand_as(p))
+        up_cap = torch.where(self._sign > 0, r_up_eff, floor_cap)
+        dn_cap = torch.where(self._sign > 0, floor_cap, r_up_eff)
         cap = torch.where(pos, up_cap, dn_cap) * self._free           # (B,6) capacity toward delta, >=0
-        tot = cap.sum(-1)                                             # (B,) (passthrough excluded)
-        frac = torch.where(tot > 1e-9, (delta.abs() / tot.clamp_min(1e-9)).clamp(max=1.0),
-                           torch.zeros_like(delta))
-        # signed-sum contribution per channel -> P-space move (respect channel sign & direction)
+        # preference-weighted allocation of |delta| across channels, iterated so
+        # saturated channels hand their remainder on. With uniform weights round
+        # 1 reduces to the legacy proportional-to-capacity split exactly.
         dir_move = torch.where(pos, self._sign, -self._sign)         # (B,6) P-space sign of the move
-        m = cap * frac.unsqueeze(-1) * dir_move                      # (B,6) reprojection move
+        need = delta.abs()
+        m_mag = torch.zeros_like(cap)
+        for _ in range(3):
+            avail = (cap - m_mag).clamp_min(0.0)
+            w_avail = avail * self._alloc_w
+            tot = w_avail.sum(-1, keepdim=True)                       # (B,1)
+            rem = (need - m_mag.sum(-1)).clamp_min(0.0).unsqueeze(-1)
+            add = torch.minimum(avail, torch.where(tot > 1e-9, w_avail / tot.clamp_min(1e-9),
+                                                   torch.zeros_like(w_avail)) * rem)
+            m_mag = m_mag + add
+        m = m_mag * dir_move                                          # (B,6) reprojection move
         p_on = p + m
 
         # remaining ramp/floor budget for the free step (keeps total move within ramps)
-        rem_up = (self._r_up - m.clamp_min(0.0)).clamp_min(0.0)
-        rem_dn = torch.minimum(self._r_dn - (-m).clamp_min(0.0), p_on).clamp_min(0.0)
+        rem_up = (r_up_eff - m.clamp_min(0.0)).clamp_min(0.0)
+        rem_dn = torch.minimum(r_dn_eff - (-m).clamp_min(0.0), p_on).clamp_min(0.0)
 
         # --- free tangential mix step (sum-preserving over flexible channels) ---
         r = r * self._free                                            # freeze passthrough at persistence
@@ -770,7 +811,7 @@ class RayenHeadFixedD(nn.Module):
 def make_rayen(base_arch: str, x_scaler, y_scaler, ramp_up, ramp_dn,
                nd_feat_idx: int = 6, n_features: int = 17,
                include_floor: bool = True, fix_demand: bool = False,
-               passthrough_idx=(2,)) -> nn.Module:
+               passthrough_idx=(2,), alloc_weights=None) -> nn.Module:
     """lstm_rayen: plain LSTM backbone. itransformer_rayen: input-RevIN
     iTransformer with output denorm off. fix_demand=False emits 8 raw outputs
     (D_t + 6 dir + s, RayenHead); fix_demand=True emits 7 (6 dir + s,
@@ -791,7 +832,7 @@ def make_rayen(base_arch: str, x_scaler, y_scaler, ramp_up, ramp_dn,
     if fix_demand:
         return RayenHeadFixedD(base, x_scaler.mean_, x_scaler.scale_, y_scaler.mean_, y_scaler.scale_,
                                ramp_up, ramp_dn, nd_feat_idx=nd_feat_idx, include_floor=include_floor,
-                               passthrough_idx=passthrough_idx)
+                               passthrough_idx=passthrough_idx, alloc_weights=alloc_weights)
     return RayenHead(base, x_scaler.mean_, x_scaler.scale_, y_scaler.mean_, y_scaler.scale_,
                      ramp_up, ramp_dn, nd_feat_idx=nd_feat_idx, include_floor=include_floor)
 

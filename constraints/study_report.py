@@ -55,13 +55,15 @@ def _by_model(rows):
 
 
 def pick_candidate(models: dict, sub: str = "rayenfd"):
-    """Prefer itransformer over lstm, +spt over bare."""
-    for name in ("itransformer_rayenfd+spt", "itransformer_rayenfd",
-                 "lstm_rayenfd+spt", "lstm_rayenfd"):
-        if name in models:
-            return models[name]
-    hits = [r for m, r in models.items() if sub in m]
-    return hits[0] if hits else None
+    """Prefer the most-fixed rayenfd variant: SOC shield > weighted alloc >
+    baseline; itransformer > lstm; +spt > bare (suffixes from study_shift)."""
+    hits = [(m, r) for m, r in models.items() if sub in m]
+    if not hits:
+        return None
+    hits.sort(key=lambda mr: ("[soc]" in mr[0], "[" in mr[0],
+                              mr[0].startswith("itransformer"), "+spt" in mr[0], mr[0]),
+              reverse=True)
+    return hits[0][1]
 
 
 def gate_p1(tf: dict) -> dict:

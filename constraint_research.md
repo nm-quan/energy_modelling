@@ -254,6 +254,42 @@ Full sweep verdicts (study_summary.md; increase g in {5,10,20,30} + reshape):
 - Open question for the retrain eval: rayenfd's ~90 TF-interior ramp cells
   (0.03% of cells; seam and free are understood, these aren't yet).
 
+SOC debug (2026-07-14): root cause quantified. Batteries hold ~54% of the
+fleet's one-step ramp capacity (chg -863 + dis +715 MW/5min vs hydro 791,
+coal 268, ocgt 263, steam passthrough 0), so the ramp-headroom-proportional
+delta allocation gives them >half of every correction: batt_dis response
++53% @g=10, +183% @g=30 (coal +3.9%/+7.7%); no SOC state in the head ->
+daily accumulation -> worst-day swing 101%/134%/553% (g10/g30/CL stress).
+Side finding: no "cumulative-sum hard output layer" literature exists — path
+constraints are enforced statefully in control (shields/CBF/MPC), not
+architecturally, which sanctions fix 2 below.
+
+SOC fixes IMPLEMENTED (2026-07-14, colab/soc_fix.ipynb):
+
+1. `RayenHeadFixedD(alloc_weights=...)` — preference-weighted forced-move
+   allocation, iterated 3x so saturated channels hand on their remainder;
+   uniform weights reproduce the legacy headroom split exactly (verified
+   bit-identical on the pilot rollout). study_shift
+   `--fd-alloc {headroom,invvar,share}`: invvar = 1/var of the 5-min
+   persistence residual per channel (VAL split, MinT-style), share =
+   train-era mean dispatch level.
+2. `model.batt_room` shield hook + stateful rollout (`--soc-shield on`):
+   the rollout tracks SOC from the model's own battery predictions
+   (SOC0 = 50%, eta_side = sqrt(0.834), 100 MWh margin) and hands the head
+   per-step battery LEVEL caps; the head forces a ramp-limited descent when
+   above the room and walls off up-moves past it (semantics:
+   level <= max(room, prev - r_dn), tested; ramp/floor guarantees unchanged,
+   9/9 layer tests pass). Balance yields to the SOC wall when it binds —
+   residual reported, same priority rule as ramps.
+
+Stacked-graph deliverable (2026-07-14): demand_simulation/study_stack_4day.py
+— ALL-ENERGY 3-panel chart (actual / baseline / scenario) matching the repo
+reference incl. wind/solar + hatched curtailment, from (best available)
+data/renewables_extract_hist.parquet [committed extract; built once locally by
+script/export_renewables_extract.py] -> last365 parquets -> derived
+wind+solar band = clip(demand_mw − net_demand, 0) on fresh clones. Same
+scenario/rollout/flags as study_shift, so figures match the tables.
+
 ## Conventions
 
 - Scripts: `constraints/stage<N>_<what>.py`; one JSON per run in

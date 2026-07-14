@@ -89,10 +89,33 @@ def load_frame():
         return s
 
     return {"fs_base": z["Xte_flat"].copy(), "Yte_flat": z["Yte_flat"],
+            "Yva_flat": z["Yva_flat"],
             "x_scaler": scaler(z["x_mean"], z["x_scale"]),
             "y_scaler": scaler(z["y_mean"], z["y_scale"]),
             "feat_cols": fc, "lookback_steps": lb,
             "test_index": test_index, "full_index": full_index}
+
+
+def compute_alloc_weights(frame, mode: str):
+    """Forced-move allocation preference for RayenHeadFixedD (SOC fix 1).
+
+    headroom  None -> legacy proportional-to-ramp-headroom (batteries ~54%).
+    invvar    1 / var of the 5-min persistence residual per channel on the VAL
+              split (MinT-style: corrections go where forecasts are reliable).
+    share     mean dispatch level per channel (train-era y_scaler means):
+              corrections follow the energy mix, so coal carries most.
+    """
+    if mode == "headroom":
+        return None
+    ys = frame["y_scaler"]
+    if mode == "share":
+        w = np.clip(np.asarray(ys.mean_, dtype=np.float64), 1.0, None)
+    elif mode == "invvar":
+        yva = ys.inverse_transform(frame["Yva_flat"]).astype(np.float64)
+        w = 1.0 / np.clip(np.diff(yva, axis=0).var(axis=0), 1.0, None)
+    else:
+        raise ValueError(f"unknown --fd-alloc {mode!r}")
+    return w / w.mean()
 
 
 # ----------------------------- scenario -----------------------------
@@ -166,7 +189,8 @@ def build_scenario(frame, scenario: str, g: float, demand_cap: float):
 # ----------------------------- models -----------------------------
 
 def load_entries(weights: Path, frame, device: str, model_filter=None,
-                 steam_pt: bool = True):
+                 steam_pt: bool = True, fd_alloc: str = "headroom",
+                 soc_shield: bool = False):
     """[(name, n_out, d_ref, module)]; d_ref in {own7, nd_window, sign_pred}."""
     xs, ys, fc = frame["x_scaler"], frame["y_scaler"], frame["feat_cols"]
     nd_idx = fc.index("net_demand")
@@ -196,14 +220,17 @@ def load_entries(weights: Path, frame, device: str, model_filter=None,
         if pt.exists():
             m = M.make_rayen(base_arch, xs, ys, ramp_up, ramp_dn,
                              nd_feat_idx=nd_idx, n_features=len(fc), fix_demand=True,
-                             passthrough_idx=(2,) if steam_pt else None)
+                             passthrough_idx=(2,) if steam_pt else None,
+                             alloc_weights=compute_alloc_weights(frame, fd_alloc))
             missing, _ = m.load_state_dict(_load(pt), strict=False)  # legacy ckpts lack _free
             free = torch.ones(6)
             if steam_pt:
                 free[2] = 0.0
             m._free.copy_(free)
             m._sign_free.copy_(torch.tensor([1., 1., 1., 1., -1., 1.]) * free)
-            name = f"{base_arch}_rayenfd" + ("+spt" if steam_pt else "")
+            name = f"{base_arch}_rayenfd" + ("+spt" if steam_pt else "") \
+                + (f"[{fd_alloc}]" if fd_alloc != "headroom" else "") \
+                + ("[soc]" if soc_shield else "")
             entries.append((name, 6, "nd_window", m.to(device).eval()))
 
         pt = weights / f"{base_arch}_task7_hist_s0.pt"
@@ -226,9 +253,19 @@ def load_entries(weights: Path, frame, device: str, model_filter=None,
 
 # ----------------------------- rollout -----------------------------
 
+SOC_MARGIN_MWH = 100.0     # covers the shield's 1-step ramp-down descent overshoot
+
+
 def rollout(model, n_out: int, d_ref: str, fs_base, fs_scen, lb: int,
-            free_test: np.ndarray, nd_idx: int, xs, ys, device: str):
-    """Closed-loop free-window rollout, base + scenario stacked (batch 2)."""
+            free_test: np.ndarray, nd_idx: int, xs, ys, device: str,
+            soc_shield: bool = False):
+    """Closed-loop free-window rollout, base + scenario stacked (batch 2).
+
+    soc_shield (SOC fix 2): track the state of charge implied by the model's
+    own battery predictions (SOC0 = 50% of nameplate) and hand the head per-step
+    battery LEVEL caps so charge can never overfill nor discharge overdrain the
+    reservoir. Only heads exposing `batt_room` (RayenHeadFixedD) are shielded.
+    """
     fs_t = torch.from_numpy(np.stack([fs_base, fs_scen])).to(device)
     ymean = torch.tensor(ys.mean_, dtype=torch.float32, device=device)
     yscale = torch.tensor(ys.scale_, dtype=torch.float32, device=device)
@@ -237,6 +274,9 @@ def rollout(model, n_out: int, d_ref: str, fs_base, fs_scen, lb: int,
     xscale_t = torch.tensor(xs.scale_[M.TARGET_FEAT_IDX], dtype=torch.float32, device=device)
     tfi = torch.tensor(M.TARGET_FEAT_IDX, dtype=torch.long, device=device)
     sign = torch.tensor(SIGN, dtype=torch.float32, device=device)
+    shield = soc_shield and hasattr(model, "batt_room")
+    eta, dt = float(np.sqrt(ETA_RT)), RES_HOURS["5min"]
+    soc = torch.full((2,), 0.5 * BATT_CAP_MWH, device=device)
 
     n = len(free_test)
     preds = torch.zeros((2, n, 6), dtype=torch.float32, device=device)
@@ -247,10 +287,18 @@ def rollout(model, n_out: int, d_ref: str, fs_base, fs_scen, lb: int,
             free_now = bool(free_test[i])
             if not (free_now and free_prev):
                 window = fs_t[:, i:i + lb, :].clone()      # teacher-forced re-read
+            if shield:
+                room_chg = ((BATT_CAP_MWH - SOC_MARGIN_MWH - soc) / (eta * dt)).clamp_min(0.0)
+                room_dis = ((soc - SOC_MARGIN_MWH) * eta / dt).clamp_min(0.0)
+                model.batt_room = torch.stack([room_chg, room_dis], dim=1)
             out = model(window)
             p_scaled = out[:, 1:] if n_out == 7 else out
             pred_mw = p_scaled * yscale + ymean
             preds[:, i, :] = pred_mw
+            if shield:
+                soc = (soc + (pred_mw[:, 4].clamp_min(0.0) * eta
+                              - pred_mw[:, 5].clamp_min(0.0) / eta) * dt) \
+                    .clamp(0.0, BATT_CAP_MWH)
             if n_out == 7:
                 d_own[:, i] = out[:, 0] * nd_scale + nd_mean
             elif d_ref == "nd_window":
@@ -262,6 +310,8 @@ def rollout(model, n_out: int, d_ref: str, fs_base, fs_scen, lb: int,
                 newrow[:, tfi] = (pred_mw - xmean_t) / xscale_t
                 window = torch.cat([window[:, 1:, :], newrow[:, None, :]], dim=1)
             free_prev = free_now
+    if shield:
+        model.batt_room = None                             # don't leak into other calls
     return (preds[0].cpu().numpy().astype(np.float64),
             preds[1].cpu().numpy().astype(np.float64),
             d_own[0].cpu().numpy().astype(np.float64),
@@ -355,6 +405,11 @@ def main():
     ap.add_argument("--weights", default=str(ROOT / "weights"))
     ap.add_argument("--models", default=None, help="comma-separated substrings")
     ap.add_argument("--rayenfd-steam-pt", choices=["on", "off"], default="on")
+    ap.add_argument("--fd-alloc", choices=["headroom", "invvar", "share"],
+                    default="headroom",
+                    help="SOC fix 1: forced-move allocation preference on rayenfd")
+    ap.add_argument("--soc-shield", choices=["on", "off"], default="off",
+                    help="SOC fix 2: stateful battery-level shield on rayenfd rollouts")
     ap.add_argument("--device", default=None)
     ap.add_argument("--max-steps", type=int, default=None, help="smoke-test cap")
     args = ap.parse_args()
@@ -393,7 +448,9 @@ def main():
 
     model_filter = [m.strip() for m in args.models.split(",")] if args.models else None
     entries = load_entries(Path(args.weights), frame, device, model_filter,
-                           steam_pt=args.rayenfd_steam_pt == "on")
+                           steam_pt=args.rayenfd_steam_pt == "on",
+                           fd_alloc=args.fd_alloc,
+                           soc_shield=args.soc_shield == "on")
     print("models:", [e[0] for e in entries])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     tag = f"{args.scenario}_g{g:g}"
@@ -401,7 +458,8 @@ def main():
     for name, n_out, d_ref, model in entries:
         t0 = time.time()
         pb, ps, db, ds = rollout(model, n_out, d_ref, frame["fs_base"], fs_scen,
-                                 lb, free_test, nd_idx, xs, ys, device)
+                                 lb, free_test, nd_idx, xs, ys, device,
+                                 soc_shield=args.soc_shield == "on")
         b_resp, s_resp = pb[mask], ps[mask]
         # per-target WAPE with the eval_hist_models denominator floor: require
         # mean |actual| >= 1 MW in the region, else the channel's near-zero
@@ -423,6 +481,7 @@ def main():
         resid_in = ps @ SIGN - nd_in_scen
         rs = ramp_split(ps, prev0, consec, free_test)
         row = {"model": name, "scenario": args.scenario, "g": g, "n": len(ti),
+               "fd_alloc": args.fd_alloc, "soc_shield": args.soc_shield == "on",
                "base_WAPE": base_wape, "base_R2": base_r2,
                "demand_in_pct": float(100 * (d_scen_t[mask].mean() - d_base_t[mask].mean())
                                       / d_base_t[mask].mean()),

@@ -9,6 +9,8 @@ script/.oe_key
 # raw data: regenerate with script/pull_data_hist.py (or the bundled last365 files)
 data/*.csv
 data/*.parquet
+# ... except the small committed renewables extract for the stacked figures
+!data/renewables_extract_hist.parquet
 data/pull_cache/
 data/pull_hist.log
 
