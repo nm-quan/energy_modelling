@@ -1,0 +1,23 @@
+{
+  "model": "itransformer_rayenfd+spt",
+  "n": 53568,
+  "WAPE": 0.11228855489161989,
+  "R2": 0.9676046612412176,
+  "per_target_WAPE": {
+    "hydro": 0.05622812566033347,
+    "coal_brown": 0.008967482589966814,
+    "gas_steam": 0.03602069065694267,
+    "gas_ocgt": 0.05472543715079288,
+    "battery_charging": 0.24487743809623258,
+    "battery_discharging": 0.27291215519545087
+  },
+  "nd_WAPE": 0.01815820176026478,
+  "bal_own_max_mw": 0.0011854106996906921,
+  "n_demand_own": 0,
+  "n_demand_act": 47728,
+  "mismatch_act_pct": 1.8158200797138409,
+  "n_neg": 0,
+  "n_ramp_vs_prev": 0,
+  "soc_day_feasible_pct": 100.0,
+  "soc_worst_day_pct": 76.27695051196825
+}

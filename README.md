@@ -49,6 +49,17 @@ Run
                                    demand-side net_demand rebound sweep through the LSTM;
                                    writes sweep_eqnd/{result_sweep.md, sweep.csv, figure/}.
 
+  Bottleneck study (constraints + WAPE + demand response; colab/study_bottlenecks.ipynb)
+    python constraints/eval_hist_models.py --ckpt-dir weights
+                                   TF + CL tables incl. rayenfd(+steam passthrough),
+                                   per-channel WAPE, per-day SOC.
+    python demand_simulation/study_shift.py --scenario increase --g 10
+                                   simulated increased-load rollout (parquet-free);
+                                   also --scenario reshape (legacy-comparable).
+    python constraints/study_report.py
+                                   A/B/C ladder gates -> study_summary.md,
+                                   study_verdicts.json, trade-off figure.
+
   Behaviour
     python behaviour/run_ar_behaviour.py   one-step vs closed-loop rollout (iTransformer).
     python behaviour/plot_behaviour.py     stacked generation + curtailment.

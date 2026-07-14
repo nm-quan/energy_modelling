@@ -1,14 +1,14 @@
 {
   "model": "lstm_task7",
-  "n": 720,
+  "n": 4320,
   "n_episodes": 15,
-  "cl_WAPE": 0.5965739183911278,
+  "cl_WAPE": 0.6335096322097917,
   "n_ramp": 0,
   "ramp_excess_pct": 0.0,
-  "bal_own_max_mw": 78.87813179677187,
-  "n_demand_act": 663,
-  "mismatch_act_pct": 2.2740677667882006,
-  "n_neg": 926,
+  "bal_own_max_mw": 78.87811355036229,
+  "n_demand_act": 4070,
+  "mismatch_act_pct": 3.5184392992004687,
+  "n_neg": 5648,
   "soc_feasible_eps": 15,
-  "soc_worst_ep_pct": 13.620975828099121
+  "soc_worst_ep_pct": 23.671835729812447
 }

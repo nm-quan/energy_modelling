@@ -1,16 +1,16 @@
 {
   "model": "lstm_task7+DR",
-  "n": 720,
+  "n": 4320,
   "n_episodes": 15,
-  "cl_WAPE": 2.8863876978282237,
+  "cl_WAPE": 3.2151864733949824,
   "n_ramp": 0,
   "ramp_excess_pct": 0.0,
-  "bal_own_max_mw": 0.0011925870730919996,
-  "n_demand_act": 675,
-  "mismatch_act_pct": 13.131788988121064,
+  "bal_own_max_mw": 0.001681749039562419,
+  "n_demand_act": 4231,
+  "mismatch_act_pct": 31.61083265011835,
   "n_neg": 0,
-  "soc_feasible_eps": 15,
-  "soc_worst_ep_pct": 21.912724467092044,
-  "alpha_frac_active": 0.5986111111111111,
-  "alpha_max": 0.7726689577102661
+  "soc_feasible_eps": 9,
+  "soc_worst_ep_pct": 125.70117790278253,
+  "alpha_frac_active": 0.8069444444444445,
+  "alpha_max": 0.7962380051612854
 }

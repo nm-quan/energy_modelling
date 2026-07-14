@@ -1,0 +1,53 @@
+{
+  "scenario_tag": "increase_g30",
+  "p1_accuracy": {
+    "pass": false,
+    "candidate": "itransformer_rayenfd+spt",
+    "macro_WAPE": 0.11228855489161989,
+    "persistence_WAPE": 0.10838889698597443,
+    "macro_gap": 0.0038996579056454622,
+    "non_battery_gaps": {
+      "hydro": 0.002968059119800935,
+      "coal_brown": 0.0013200035875572894,
+      "gas_steam": 0.0,
+      "gas_ocgt": 0.020392398475474978
+    },
+    "battery_mean_gap": -0.000641256874480231,
+    "why": "macro gap +0.0039 (tol +0.005), worst non-battery channel gap +0.0204 (tol +0.01); battery gap -0.0006 is the accepted irreducible part"
+  },
+  "p2_responsiveness": {
+    "pass": true,
+    "candidate": "itransformer_rayenfd+spt",
+    "capture": 1.0289128924597633,
+    "track_free_p50_mw": 90.84519175501327,
+    "n_ramp_free": 0,
+    "n_ramp_seam": 169,
+    "n_neg": 0,
+    "rayen_capture_contrast": {},
+    "anchor_fallback_capture": 1.028969065387064,
+    "why": "capture 1.029 (need 0.8-1.2), track p50 91 MW (<= 100), free-window ramps 0, neg 0"
+  },
+  "p3_battery": {
+    "pass": false,
+    "checks": [
+      {
+        "source": "tf",
+        "day_feasible_pct": 100.0,
+        "worst_day_pct": 76.27695051196825
+      },
+      {
+        "source": "scenario",
+        "day_feasible_pct": 88.70967741935483,
+        "worst_day_pct": 133.98505209980837
+      },
+      {
+        "source": "cl_stress",
+        "day_feasible_pct": 0.0,
+        "worst_day_pct": 553.0260504289691
+      }
+    ],
+    "legacy_window_swing_pct": 9522.335083902373,
+    "why": "per-day feasible [100.0, 88.7, 0.0]% (need >= 95.0), worst 553.0% of nameplate; whole-window swing is reported for transparency only (drift artifact)"
+  },
+  "run_retrain": true
+}

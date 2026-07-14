@@ -1,15 +1,23 @@
 {
   "model": "lstm_task7",
-  "n": 108,
-  "WAPE": 0.20098077789695742,
-  "R2": 0.9613584148858151,
-  "nd_WAPE": 0.023346359366788704,
-  "bal_own_max_mw": 99.45832252502441,
-  "n_demand_own": 45,
-  "n_demand_act": 94,
-  "mismatch_act_pct": 2.361892854549531,
-  "n_neg": 109,
-  "n_ramp_vs_prev": 0,
-  "soc_day_feasible_pct": 47.22222222222222,
-  "soc_worst_day_pct": 658.9957287760692
+  "n": 53568,
+  "WAPE": 0.2699743010290135,
+  "R2": 0.9430568484800307,
+  "per_target_WAPE": {
+    "hydro": 0.11649590446671494,
+    "coal_brown": 0.014640700348989032,
+    "gas_steam": 0.7576021518861057,
+    "gas_ocgt": 0.13823153860663848,
+    "battery_charging": 0.2952729480391882,
+    "battery_discharging": 0.2976025628264446
+  },
+  "nd_WAPE": 0.02477614789331067,
+  "bal_own_max_mw": 155.6541113256635,
+  "n_demand_own": 16594,
+  "n_demand_act": 48296,
+  "mismatch_act_pct": 2.505437568489288,
+  "n_neg": 55162,
+  "n_ramp_vs_prev": 731,
+  "soc_day_feasible_pct": 100.0,
+  "soc_worst_day_pct": 61.94241608065962
 }

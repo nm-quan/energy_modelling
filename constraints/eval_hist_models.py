@@ -50,7 +50,8 @@ from check_caps import RAMPS, CAPS, BATT_CAP_MWH, RES_HOURS  # noqa: E402
 TARGETS = ["hydro", "coal_brown", "gas_steam", "gas_ocgt",
            "battery_charging", "battery_discharging"]
 SIGN = np.array([1, 1, 1, 1, -1, 1], dtype=np.float64)
-ARCHS = ["lstm_rayen", "itransformer_rayen", "lstm_task7", "itransformer_task7"]
+ARCHS = ["lstm_rayen", "itransformer_rayen", "lstm_rayenfd", "itransformer_rayenfd",
+         "lstm_task7", "itransformer_task7"]
 RAMP_TOL = 0.6                   # eps-anchor slack + float32 noise floor (MW)
 DEMAND_TOL = 10.0                # balance violation threshold (MW)
 RESULTS = HERE / "results"
@@ -66,8 +67,17 @@ def _find(ckpt_dir: Path, arch: str, seed: int, ext: str = ".pt") -> Path | None
     return None
 
 
-def load_entries(ckpt_dir: Path, data: dict, seed: int, device: str) -> list:
-    """[(name, n_out, module)] for persistence + every checkpoint on disk."""
+def load_entries(ckpt_dir: Path, data: dict, seed: int, device: str,
+                 rayenfd_steam_pt: bool = True) -> list:
+    """[(name, n_out, module)] for persistence + every checkpoint on disk.
+
+    rayenfd_steam_pt: force the gas_steam passthrough on the RayenHeadFixedD
+    rows (freeze the peaker at persistence). The buffers are overwritten AFTER
+    load_state_dict, so the flag wins over whatever the checkpoint was trained
+    with -- this is the zero-retrain "A-prime" retrofit from the study ladder.
+    Legacy rayenfd checkpoints predate the _free/_sign_free buffers, hence
+    strict=False (missing buffers keep the constructor's values).
+    """
     xs, ys, fc = data["x_scaler"], data["y_scaler"], data["feat_cols"]
     nd_idx = fc.index("net_demand")
     ramp_dn = [abs(RAMPS[t][0]) for t in TARGETS]
@@ -80,14 +90,31 @@ def load_entries(ckpt_dir: Path, data: dict, seed: int, device: str) -> list:
             print(f"  [skip] no checkpoint for {arch}")
             continue
         base_arch = arch.rsplit("_", 1)[0]
-        if arch.endswith("_rayen"):
+        name, n_out = arch, 7
+        if arch.endswith("_rayenfd"):
+            m = M.make_rayen(base_arch, xs, ys, ramp_up, ramp_dn,
+                             nd_feat_idx=nd_idx, n_features=len(fc), fix_demand=True,
+                             passthrough_idx=(2,) if rayenfd_steam_pt else None)
+            missing, _ = m.load_state_dict(
+                torch.load(pt, map_location="cpu", weights_only=True), strict=False)
+            if missing:
+                print(f"  {arch}: legacy checkpoint, constructor buffers kept for {missing}")
+            free = torch.ones(6)
+            if rayenfd_steam_pt:
+                free[2] = 0.0
+                name = arch + "+spt"
+            m._free.copy_(free)
+            m._sign_free.copy_(torch.tensor([1., 1., 1., 1., -1., 1.]) * free)
+            n_out = 6
+        elif arch.endswith("_rayen"):
             m = M.make_rayen(base_arch, xs, ys, ramp_up, ramp_dn,
                              nd_feat_idx=nd_idx, n_features=len(fc))
+            m.load_state_dict(torch.load(pt, map_location="cpu", weights_only=True))
         else:
             m = M.make_task7(base_arch, n_features=len(fc), nd_feat_idx=nd_idx)
-        m.load_state_dict(torch.load(pt, map_location="cpu", weights_only=True))
+            m.load_state_dict(torch.load(pt, map_location="cpu", weights_only=True))
         m = m.to(device).eval()
-        entries.append((arch, 7, m))
+        entries.append((name, n_out, m))
         if arch.endswith("_task7"):
             fz = _find(ckpt_dir, arch, seed, "_safeF.npz")
             if fz is not None:
@@ -161,6 +188,7 @@ def tf_eval(entries, data, device, stride, eta_rt):
     nd_act = true @ SIGN
     prev = (Xte[:, -1, M.TARGET_FEAT_IDX] * xs.scale_[M.TARGET_FEAT_IDX]
             + xs.mean_[M.TARGET_FEAT_IDX]).astype(np.float64)
+    nd_in = (Xte[:, -1, nd_idx] * xs.scale_[nd_idx] + xs.mean_[nd_idx]).astype(np.float64)
     ramp_up = np.array([RAMPS[t][1] for t in TARGETS])
     ramp_dn = np.array([abs(RAMPS[t][0]) for t in TARGETS])
     days = pd.DatetimeIndex(idx).normalize()
@@ -171,9 +199,13 @@ def tf_eval(entries, data, device, stride, eta_rt):
     for name, n_out, model in entries:
         pred_raw, alpha = _predict(model, Xte, device)
         pred, d_own = _split7(pred_raw, n_out, xs, ys, nd_idx)
-        if d_own is None:                       # persistence: D := SIGN.prev
-            d_own = prev @ SIGN
-        met = ev.compute_metrics(true, pred, TARGETS)["average"]
+        if d_own is None:
+            # 6-output rows never predict D. persistence: own D = SIGN.prev =
+            # nd(t-1) by the hist identity; rayenfd: the plane is PINNED to
+            # nd(t-1) read off the window -- same reference for both.
+            d_own = nd_in
+        met_all = ev.compute_metrics(true, pred, TARGETS)
+        met = met_all["average"]
         bal = np.abs(pred @ SIGN - d_own)
         resid_act = pred @ SIGN - nd_act
         delta = pred - prev
@@ -181,6 +213,7 @@ def tf_eval(entries, data, device, stride, eta_rt):
         swings = _soc_swings(pred, segs, eta_rt, dt)
         row = {"model": name, "n": len(pred),
                "WAPE": met["WAPE"], "R2": met["R2"],
+               "per_target_WAPE": {t: met_all["per_target"][t]["WAPE"] for t in TARGETS},
                "nd_WAPE": float(np.abs(d_own - nd_act).sum() / np.abs(nd_act).sum()),
                "bal_own_max_mw": float(bal.max()),
                "n_demand_own": int((bal > DEMAND_TOL).sum()),
@@ -243,6 +276,7 @@ def cl_eval(entries, data, device, episodes, eta_rt, max_steps=None):
 
     rows = []
     for name, n_out, model in entries:
+        is_fd = "rayenfd" in name        # own D = the exogenous nd(t-1) the plane is pinned to
         blocks = [Xte_flat[e["i0"]:e["i0"] + lb + n].copy() for e, n in zip(episodes, steps)]
         preds = [np.empty((n, 6), dtype=np.float64) for n in steps]
         d_owns = [np.empty(n, dtype=np.float64) for n in steps]
@@ -258,8 +292,13 @@ def cl_eval(entries, data, device, episodes, eta_rt, max_steps=None):
                 mw = ys.inverse_transform(p6_scaled)
                 for j, k in enumerate(act):
                     preds[k][s] = mw[j]
-                    d_owns[k][s] = (out[j, 0] * xs.scale_[nd_idx] + xs.mean_[nd_idx]
-                                    if n_out == 7 else mw[j] @ SIGN)
+                    if n_out == 7:
+                        d_owns[k][s] = out[j, 0] * xs.scale_[nd_idx] + xs.mean_[nd_idx]
+                    elif is_fd:
+                        d_owns[k][s] = (blocks[k][s + lb - 1, nd_idx] * xs.scale_[nd_idx]
+                                        + xs.mean_[nd_idx])
+                    else:
+                        d_owns[k][s] = mw[j] @ SIGN
                     blocks[k][s + lb, tfi] = (mw[j] - x_mu) / x_sd   # feed back own dispatch
         pred = np.concatenate(preds)
         d_own = np.concatenate(d_owns)
@@ -320,6 +359,30 @@ def write_md(path: Path, title: str, note: str, rows: list[dict], cols: list[str
     print("wrote", path)
 
 
+def write_per_channel_md(path: Path, rows: list[dict]):
+    """Per-channel WAPE table (study problem 1): where does each model lose to
+    persistence? Delta column = macro WAPE - persistence macro WAPE."""
+    pers = next((r for r in rows if r["model"] == "persistence"), None)
+    cols = ["model"] + TARGETS + ["macro_WAPE", "delta_vs_persistence"]
+    lines = ["# Hist teacher-forced per-channel WAPE\n",
+             "Same run as hist_tf.md. delta_vs_persistence = macro WAPE minus the "
+             "persistence row's. Persistence is the h=1 floor; the study gate asks "
+             "for parity (<= +0.005 macro) with the residual gap isolated to the "
+             "battery channels.\n",
+             "| " + " | ".join(cols) + " |",
+             "| " + " | ".join("---" for _ in cols) + " |"]
+    for r in rows:
+        pt = r.get("per_target_WAPE")
+        if pt is None:
+            continue
+        delta = r["WAPE"] - pers["WAPE"] if pers else float("nan")
+        cells = [r["model"]] + [f"{pt[t]:.4f}" for t in TARGETS] \
+            + [f"{r['WAPE']:.4f}", f"{delta:+.4f}"]
+        lines.append("| " + " | ".join(cells) + " |")
+    path.write_text("\n".join(lines) + "\n")
+    print("wrote", path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt-dir", default=str(ROOT / "ml"))
@@ -331,11 +394,15 @@ def main():
     ap.add_argument("--max-steps", type=int, default=None, help="cap CL episode steps (smoke)")
     ap.add_argument("--skip-tf", action="store_true")
     ap.add_argument("--skip-cl", action="store_true")
+    ap.add_argument("--rayenfd-steam-pt", choices=["on", "off"], default="on",
+                    help="force the gas_steam persistence passthrough on rayenfd rows "
+                         "(study ladder A-prime; 'off' evaluates the head as trained)")
     args = ap.parse_args()
     device = ev.pick_device(args.device)
 
     data = pipeline.load_prepared("5min", 24, 1, "net_dispatch_totdem", "hist")
-    entries = load_entries(Path(args.ckpt_dir), data, args.seed, device)
+    entries = load_entries(Path(args.ckpt_dir), data, args.seed, device,
+                           rayenfd_steam_pt=args.rayenfd_steam_pt == "on")
     print(f"models: {[n for n, _, _ in entries]}  device={device}")
     RESULTS.mkdir(parents=True, exist_ok=True)
 
@@ -351,6 +418,7 @@ def main():
                  rows, ["model", "WAPE", "R2", "nd_WAPE", "bal_own_max_mw", "n_demand_own",
                         "n_demand_act", "mismatch_act_pct", "n_neg", "n_ramp_vs_prev",
                         "soc_day_feasible_pct", "soc_worst_day_pct"])
+        write_per_channel_md(RESULTS / "hist_tf_per_channel.md", rows)
 
     if not args.skip_cl:
         episodes = load_episodes(data)

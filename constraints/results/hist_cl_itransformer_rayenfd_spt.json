@@ -1,0 +1,14 @@
+{
+  "model": "itransformer_rayenfd+spt",
+  "n": 4320,
+  "n_episodes": 15,
+  "cl_WAPE": 1.653990920820328,
+  "n_ramp": 0,
+  "ramp_excess_pct": 0.0,
+  "bal_own_max_mw": 0.001567586474266136,
+  "n_demand_act": 3920,
+  "mismatch_act_pct": 1.881158647935735,
+  "n_neg": 0,
+  "soc_feasible_eps": 0,
+  "soc_worst_ep_pct": 553.0260504289691
+}
