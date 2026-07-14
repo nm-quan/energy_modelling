@@ -90,7 +90,8 @@ def _torch_load(path: Path):
         return torch.load(path, map_location="cpu")
 
 
-def load_entries(weights: Path, data: dict, device: str, model_filter=None):
+def load_entries(weights: Path, data: dict, device: str, model_filter=None,
+                 rayenfd_steam_pt: bool = False):
     xs, ys, fc = data["x_scaler"], data["y_scaler"], data["feat_cols"]
     nd_idx = fc.index("net_demand")
     ramp_dn = [abs(RAMPS[t][0]) for t in TARGETS]
@@ -120,8 +121,16 @@ def load_entries(weights: Path, data: dict, device: str, model_filter=None):
         if "rayen" in name:
             model = M.make_rayen(base_arch, xs, ys, ramp_up, ramp_dn,
                                  nd_feat_idx=nd_idx, n_features=len(fc),
-                                 fix_demand="rayenfd" in name)
-            model.load_state_dict(_torch_load(pt))
+                                 fix_demand="rayenfd" in name,
+                                 passthrough_idx=(2,) if ("rayenfd" in name and rayenfd_steam_pt)
+                                 else None)
+            model.load_state_dict(_torch_load(pt), strict=False)
+            if "rayenfd" in name:
+                free = torch.ones(6)
+                if rayenfd_steam_pt:
+                    free[2] = 0.0
+                model._free.copy_(free)
+                model._sign_free.copy_(torch.tensor(SIGN, dtype=torch.float32) * free)
         else:
             task = M.make_task7(base_arch, n_features=len(fc), nd_feat_idx=nd_idx)
             task.load_state_dict(_torch_load(pt))

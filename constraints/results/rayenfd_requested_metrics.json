@@ -1,0 +1,13 @@
+{
+  "regular_test": {
+    "WAPE": 0.11228855500612638,
+    "n_ramp_violations": 0,
+    "n_netdemand_balance_violations": 0,
+    "SOC_possible_starting": true
+  },
+  "simulated_test": {
+    "n_ramp_violations": 0,
+    "n_netdemand_balance_violations": 0,
+    "SOC_possible_starting": false
+  }
+}
