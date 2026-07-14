@@ -18,6 +18,21 @@ future_demand_45d/5min/<mode>/ is missing):
       p.prepare('5min', 24, 1, 'net_dispatch_totdem', dataset='future_demand_45d'); \
       p.prepare('5min', 24, 1, 'net_dispatch_totdem_fcst', dataset='future_demand_45d')"
 
+Stability notes (all needed to get a trustworthy comparison on this small,
+45-day dataset -- none of these matter on the 4.75-year "hist" runs, which
+dilute the same issues across thousands of batches/epoch instead of ~68):
+  - price_aud_per_mwh has a genuine ~90-sigma outlier (a real AEMO price-cap
+    event, not a data bug -- the full hist dataset has ~65-sigma outliers of
+    the same kind). Unclipped, this exploded gradients (train_mse=inf most
+    epochs). Backward grad-norm clipping alone wasn't enough (the forward
+    pass through an under-trained LSTM already overflows on a raw 90-sigma
+    input) -- fixed by winsorizing the *scaled* inputs to +/-8 sigma
+    (INPUT_CLIP_SIGMA) in addition to grad clipping.
+  - Apple's MPS backend produced NaN losses on this dataset's batch scale
+    even with both of the above fixes; CPU training was stable. --device
+    defaults to cpu here for that reason -- don't switch back to mps/auto
+    without re-checking for NaN losses in the log.
+
 Usage:
   python3 future_demand/run_experiment.py
   python3 future_demand/run_experiment.py --epochs 40 --patience 10 --seed 0
@@ -45,6 +60,14 @@ from torch.utils.data import DataLoader, TensorDataset
 DATASET = "future_demand_45d"
 ARCH = "lstm"                 # no-RevIN LSTM per README's stated default model
 GRAD_CLIP_NORM = 1.0
+# price_aud_per_mwh has ~90-sigma price-cap-event outliers (2 of 12,959 rows,
+# see run log) -- backward clipping alone isn't enough because the forward
+# pass through an under-trained LSTM already overflows on a raw 90-sigma
+# input. Winsorizing the *scaled* inputs is the standard fix for this exact
+# electricity-price-cap situation; applied locally here only (not touched in
+# lib/pipeline.py) since the 4.75-year "hist" runs never hit this at their
+# batch scale and shouldn't change.
+INPUT_CLIP_SIGMA = 8.0
 
 
 def train_clipped(model: nn.Module, data: dict, spec: M.TrainSpec, device: str, name: str):
@@ -107,6 +130,8 @@ def train_clipped(model: nn.Module, data: dict, spec: M.TrainSpec, device: str, 
 
 def run_arm(input_mode: str, name: str, spec: M.TrainSpec, seed: int, device: str) -> dict:
     data = pipeline.load_prepared("5min", 24, 1, input_mode, DATASET)
+    for k in ("Xtr", "Xva", "Xte"):
+        data[k] = np.clip(data[k], -INPUT_CLIP_SIGMA, INPUT_CLIP_SIGMA)
     print(f"[{name}] input_mode={input_mode}  features={data['feat_cols']}")
     print(f"[{name}] windows: train {len(data['Xtr']):,}  val {len(data['Xva']):,}  "
           f"test {len(data['Xte']):,}", flush=True)
@@ -141,11 +166,14 @@ def main():
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--device", default=None)
+    ap.add_argument("--device", default="cpu",
+                    help="default cpu: MPS produced NaN losses on this small "
+                         "(~68 batches/epoch) dataset even with grad clipping "
+                         "+ input winsorizing -- see module docstring")
     ap.add_argument("--out", default=str(HERE / "results.json"))
     args = ap.parse_args()
 
-    device = ev.pick_device(args.device)
+    device = args.device or ev.pick_device()
     spec = M.TrainSpec(epochs=args.epochs, patience=args.patience,
                        batch=args.batch, lr=args.lr)
     print(f"arch={ARCH} dataset={DATASET} device={device} recipe={spec}", flush=True)
