@@ -282,6 +282,30 @@ SOC fixes IMPLEMENTED (2026-07-14, colab/soc_fix.ipynb):
    9/9 layer tests pass). Balance yields to the SOC wall when it binds —
    residual reported, same priority rule as ramps.
 
+SOC-fix RESULTS (full test rollouts, increase scenario, soc_fix.ipynb):
+
+| variant | g | capture | batt_dis resp | worst-day SOC | days OK | cl_WAPE |
+| --- | --- | --- | --- | --- | --- | --- |
+| baseline (headroom) | 10 | 1.029 | +53% | 101% | 99.5% | 2.32 |
+| invvar | 10 | 1.029 | +47% | 101% | 99.5% | 1.90 |
+| share | 10 | 1.029 | +37% | 102% | 99.5% | 0.94 |
+| **share+soc** | 10 | 1.029 | +34% | **71%** | **100%** | **0.93** |
+| baseline | 30 | 1.029 | +183% | 134% | 88.7% | 2.32 |
+| share | 30 | 1.028 | +465% | 136% | 96.8% | 0.94 |
+| **share+soc** | 30 | 1.027 | +300% | **61%** | **100%** | **0.93** |
+
+Reading: the share weights fix the closed-loop MIX (cl_WAPE 2.32 -> 0.94; the
+4-day stack now visually matches the actual panel — no more free-window coal
+collapse), and the shield makes the battery budget a hard guarantee (worst day
+61-71% at ANY g, 100% of days feasible) at zero response cost (capture 1.03).
+Weights alone do NOT cap SOC (share@g30 worst 136%) — the shield is what
+guarantees. Ramp counts on the fixed variants are higher (142-425, dominated
+by the seam + TF-re-read buckets; the head's per-step guarantee vs its anchor
+is intact — this is the pred[t]-vs-pred[t-1] metric convention at re-read
+boundaries, same family as the known ~90-cell open question). Remaining:
+wire the shield into eval_hist_models CL stress (its 0/15 row is the pre-fix
+head) and bake the share weights into the retrain.
+
 Stacked-graph deliverable (2026-07-14): demand_simulation/study_stack_4day.py
 — ALL-ENERGY 3-panel chart (actual / baseline / scenario) matching the repo
 reference incl. wind/solar + hatched curtailment, from (best available)
