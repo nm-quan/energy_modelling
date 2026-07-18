@@ -67,8 +67,12 @@ def evaluate(model, f, gws, device, context):
             xs[context:context + N][:, tfi] = 0.0
             xb = torch.from_numpy(xs[None].astype(np.float32)).to(device)
             mb = torch.from_numpy(m[None]).to(device)
-            out = model(xb, mb)[0, context:context + N].cpu().numpy()   # (N,6) y-scaled
-            fill = out * f.y_scale + f.y_mean
+            dev = model(xb, mb)[0, context:context + N].cpu().numpy()   # (N,6) y-scaled deviation
+            # residual: fill = linear-interp skeleton + learned deviation (y-scaled)
+            tt = (np.arange(1, N + 1) / (N + 1))[:, None]
+            pL_s, pR_s = f.Yte[g0 - 1], f.Yte[gw.gap_idx[-1] + 1]
+            interp = pL_s[None, :] + tt * (pR_s - pL_s)[None, :]
+            fill = (interp + dev) * f.y_scale + f.y_mean
             P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)
             num += np.abs(P - gw.truth_mw).sum(0); den += np.abs(gw.truth_mw).sum(0)
             d = np.diff(np.vstack([gw.pL_mw, P, gw.pR_mw]), axis=0)
@@ -88,7 +92,11 @@ def main():
     ap.add_argument("--hidden", type=int, default=128)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--perturb", type=float, default=0.5, help="share of windows demand-perturbed")
+    ap.add_argument("--perturb", type=float, default=0.0,
+                    help="share of windows with SMALL input-noise augmentation (default off; "
+                         "counterfactual responsiveness comes from natural 5-yr demand variation, "
+                         "NOT from perturbing demand with an unchanged target -- that teaches the "
+                         "model to IGNORE demand)")
     ap.add_argument("--lam-bal", type=float, default=0.1)
     ap.add_argument("--device", default=None)
     ap.add_argument("--seed", type=int, default=0)
@@ -121,14 +129,17 @@ def main():
         tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed + ep)
         X = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng) if args.perturb > 0 else tr["X"]
         Xg = X[:, args.context:args.context + tr["gap"]]      # gap-slice features for balance term
+        gs, ge = args.context, args.context + tr["gap"]
         model.train(); perm = rng.permutation(len(X)); tot = 0.0
         for i in range(0, len(X), args.batch):
             j = perm[i:i + args.batch]
             xb = torch.from_numpy(X[j]).to(device)
             mb = torch.from_numpy(tr["mask"][j]).to(device)
             yb = torch.from_numpy(tr["Y"][j]).to(device)
+            interp = torch.from_numpy(tr["interp"][j]).to(device)
             xnd = torch.from_numpy(Xg[j][:, :, ND_COL]).to(device)
-            out = model(xb, mb)[:, args.context:args.context + tr["gap"]]
+            dev = model(xb, mb)[:, gs:ge]
+            out = interp + dev                                # residual: interp + learned deviation
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
                                          ys_mean, ys_scale, sign, args.lam_bal)
             opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * len(j)

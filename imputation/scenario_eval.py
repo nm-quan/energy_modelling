@@ -53,9 +53,11 @@ def impute_project(model, f, gw, context, device, g_pct):
     m = np.ones((xs.shape[0], 1), np.float32); m[gsl] = 0.0
     xs[gsl][:, tfi] = 0.0
     with torch.no_grad():
-        out = model(torch.from_numpy(xs[None].astype(np.float32)).to(device),
+        dev = model(torch.from_numpy(xs[None].astype(np.float32)).to(device),
                     torch.from_numpy(m[None]).to(device))[0, gsl].cpu().numpy()
-    fill = out * f.y_scale + f.y_mean
+    tt = (np.arange(1, N + 1) / (N + 1))[:, None]            # residual: interp + deviation
+    pL_s, pR_s = f.Yte[g0 - 1], f.Yte[gw.gap_idx[-1] + 1]
+    fill = ((pL_s[None, :] + tt * (pR_s - pL_s)[None, :]) + dev) * f.y_scale + f.y_mean
     P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, nd_mw)
     return P, resid, nd_mw
 

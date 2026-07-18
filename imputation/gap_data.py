@@ -149,10 +149,18 @@ def sample_train_windows(f: Flats, n: int, context: int = 72, gap: int = 36,
     # y-scaled truth in the gap, TARGETS order (from the target flat, not X)
     gs, ge = context, context + gap
     Y = np.stack([f.Ytr[s + gs:s + ge] for s in starts]).astype(np.float32)  # (n,G,6)
+    # linear-interp skeleton (y-scaled) from the boundary steps 10:55 / 14:00 -> the
+    # model learns the DEVIATION from this, so it starts at the interp baseline and
+    # can only improve (fill = interp + dev). Boundaries are real (outside the gap).
+    pL = f.Ytr[starts + gs - 1]                                        # (n,6) y-scaled
+    pR = f.Ytr[starts + ge]                                            # (n,6)
+    t = (np.arange(1, gap + 1) / (gap + 1))[None, :, None]             # (1,G,1)
+    interp = (pL[:, None, :] + t * (pR - pL)[:, None, :]).astype(np.float32)  # (n,G,6)
     mask = np.ones((n, W, 1), dtype=np.float32)
     mask[:, gs:ge, :] = 0.0
     X[:, gs:ge, tfi] = 0.0                                              # blank the unknown subspace
-    return {"X": X, "mask": mask, "Y": Y, "context": context, "gap": gap, "W": W}
+    return {"X": X, "mask": mask, "Y": Y, "interp": interp,
+            "context": context, "gap": gap, "W": W}
 
 
 if __name__ == "__main__":
