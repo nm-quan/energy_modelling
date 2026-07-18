@@ -23,3 +23,6 @@ data/preprocessed/**
 
 # per-epoch resume checkpoints (machine-local; final weights ARE committed)
 ml/**/*_ckpt.pt
+
+# imputation pilot checkpoints (regenerable via imputation/train.py)
+imputation/results/*.pt
