@@ -1,0 +1,20 @@
+{
+  "tag": "placebo(g=0)",
+  "g": 0.0,
+  "n_days": 186,
+  "capture": null,
+  "resp_pct": {
+    "hydro": 0.0,
+    "coal_brown": 0.0,
+    "gas_steam": 0.0,
+    "gas_ocgt": 0.0,
+    "battery_charging": 0.0,
+    "battery_discharging": 0.0
+  },
+  "track_p50_mw": 45.774723682789954,
+  "track_p95_mw": 223.6173420276079,
+  "ramp_violations_incl_seams": 0,
+  "n_neg": 0,
+  "balance_resid_max_mw": 435.5119109551383,
+  "soc_infeasible_gapdays": 0
+}

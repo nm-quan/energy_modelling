@@ -1,0 +1,20 @@
+{
+  "tag": "scenario(g=10)",
+  "g": 10.0,
+  "n_days": 186,
+  "capture": 0.8363844581994501,
+  "resp_pct": {
+    "hydro": 79.86962183016104,
+    "coal_brown": 3.7251981818752715,
+    "gas_steam": 13.58266919052181,
+    "gas_ocgt": 79.29494192653844,
+    "battery_charging": -3.3566533733761,
+    "battery_discharging": 19.222784477883145
+  },
+  "track_p50_mw": 6.424705535944895,
+  "track_p95_mw": 124.92567670573271,
+  "ramp_violations_incl_seams": 0,
+  "n_neg": 0,
+  "balance_resid_max_mw": 365.6316858205985,
+  "soc_infeasible_gapdays": 0
+}

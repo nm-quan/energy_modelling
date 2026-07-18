@@ -34,6 +34,49 @@ ramps, box, SOC.
 4. **model.py / train.py** — bi-LSTM over the window + mask channel, ramp-tube
    head, trained on masked + perturbed windows. *(next)*
 
+## Pilot results (CPU, 2026-07-15)
+
+### Reconstruction WAPE — mask real 11–14, fill, score vs measured truth
+
+| channel | interp (baseline) | bi-LSTM (residual) |
+| --- | --- | --- |
+| coal_brown | **0.023** | 0.026 |
+| gas_ocgt | **0.108** | 0.280 |
+| gas_steam | **0.215** | 0.254 |
+| hydro | **0.273** | 0.344 |
+| battery_charging | 0.317 | **0.313** |
+| battery_discharging | 1.136 | **1.075** |
+| **macro** | **0.345** | 0.382 |
+
+The residual bi-LSTM (interp + learned deviation) **approaches but doesn't yet
+beat** interpolation on this CPU pilot: it slightly improves the batteries (the
+hard channels) but adds noise on the smooth ones (it hasn't learned dev≈0 where
+interp is already near-perfect). Fix in flight: `--lam-dev` L2-penalises the
+deviation so smooth channels stay at interp; sweep on GPU. **Batteries stay the
+wall in imputation too** (batt_dis 1.1) — same optimizer-not-pattern reason as
+the forecasting track (theme 6). So the reframe's value is NOT lower WAPE.
+
+### Counterfactual — the actual deliverable (186 test days)
+
+| check | result |
+| --- | --- |
+| placebo (g=0): spurious response | **0.0%** (coal & batt_dis), track p50 46 MW |
+| scenario (+10%): **capture** | **+0.836** (fleet delivers 84% of the extra load) |
+| scenario tracking p50 | **6 MW** |
+| **ramp violations incl. both seams** | **0** |
+| n_neg | **0** |
+| SOC-infeasible gap-days | **0 / 186** |
+
+This is the point: **the 2:05 seam is gone by construction** (0 violations
+including both boundaries, vs the forecasting model's 199 seam artifacts), the
+fill **responds to +10% demand** (capture 0.84, median tracking 6 MW), and the
+**placebo is clean** (no invented effect when demand is unchanged) — all while
+staying box/ramp/SOC feasible. Capture 0.84 < the forecasting model's 1.03 is the
+honest trade: pinning BOTH endpoints (seam-clean) limits how far the middle can
+rise vs pinning only the past (seam-broken). Next: `lam-dev` sweep + GPU + a GRIN
+engine (graph across channels) for reconstruction; landing-strip right-boundary
+for the energy-non-neutral case.
+
 ## First result — baseline reconstruction WAPE (186 real test days)
 
 Mask the real 11–14 window, fill, score vs measured truth (answer key exists).

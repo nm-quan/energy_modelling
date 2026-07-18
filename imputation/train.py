@@ -98,6 +98,9 @@ def main():
                          "NOT from perturbing demand with an unchanged target -- that teaches the "
                          "model to IGNORE demand)")
     ap.add_argument("--lam-bal", type=float, default=0.1)
+    ap.add_argument("--lam-dev", type=float, default=0.0,
+                    help="L2 penalty on the deviation from interp (keeps smooth channels "
+                         "at the interp baseline; sweep on GPU, e.g. 0.01-0.3)")
     ap.add_argument("--device", default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--smoke", action="store_true")
@@ -142,6 +145,8 @@ def main():
             out = interp + dev                                # residual: interp + learned deviation
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
                                          ys_mean, ys_scale, sign, args.lam_bal)
+            loss = loss + args.lam_dev * (dev ** 2).mean()    # keep dev small: stay near interp
+                                                              # unless the data justifies moving
             opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * len(j)
         ev = evaluate(model, f, gws, device, args.context)
         flag = ""
