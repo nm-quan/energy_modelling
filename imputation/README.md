@@ -48,13 +48,16 @@ ramps, box, SOC.
 | battery_discharging | 1.136 | **1.075** |
 | **macro** | **0.345** | 0.382 |
 
-The residual bi-LSTM (interp + learned deviation) **approaches but doesn't yet
-beat** interpolation on this CPU pilot: it slightly improves the batteries (the
-hard channels) but adds noise on the smooth ones (it hasn't learned dev≈0 where
-interp is already near-perfect). Fix in flight: `--lam-dev` L2-penalises the
-deviation so smooth channels stay at interp; sweep on GPU. **Batteries stay the
-wall in imputation too** (batt_dis 1.1) — same optimizer-not-pattern reason as
-the forecasting track (theme 6). So the reframe's value is NOT lower WAPE.
+The residual bi-LSTM (interp + learned deviation) **approaches but does not beat**
+interpolation on this CPU pilot — macro 0.382 (no penalty) / 0.392 (`--lam-dev`
+0.05); the reconstruction plateaus at ~0.38–0.39 and `lam-dev` did not help, so
+this is a real undertraining/architecture ceiling, not a knob. It slightly
+improves the batteries (the hard channels) but adds noise on the smooth ones. The
+route to actually beat 0.345 is GPU + more data + a GRIN engine (graph across
+channels, so coal/hydro/battery relations are modelled) — not a CPU regularizer
+sweep. **Batteries stay the wall in imputation too** (batt_dis 1.1) — same
+optimizer-not-pattern reason as the forecasting track (theme 6). So the reframe's
+value is NOT lower WAPE; it is the counterfactual behavior below.
 
 ### Counterfactual — the actual deliverable (186 test days)
 
