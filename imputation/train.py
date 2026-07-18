@@ -108,6 +108,8 @@ def main():
     args = ap.parse_args()
     if args.smoke:
         args.epochs, args.n_train, args.batch = 2, 2000, 64
+        if args.out == str(OUT / "bilstm_imputer.pt"):   # never clobber the real ckpt
+            args.out = str(OUT / "bilstm_smoke.pt")
     device = args.device or ("cuda" if torch.cuda.is_available() else
                              ("mps" if torch.backends.mps.is_available() else "cpu"))
     torch.manual_seed(args.seed); np.random.seed(args.seed)
