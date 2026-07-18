@@ -1,16 +1,19 @@
 {
-  "macro_WAPE": 0.43090538306395826,
+  "macro_WAPE": 0.38188552640280166,
   "per_channel_WAPE": {
-    "hydro": 0.379727332569659,
-    "coal_brown": 0.022005190112862002,
-    "gas_steam": 0.32699762317939424,
-    "gas_ocgt": 0.4703655390799134,
-    "battery_charging": 0.3132169363773122,
-    "battery_discharging": 1.0731196770646085
+    "hydro": 0.343936448849596,
+    "coal_brown": 0.026197485435003533,
+    "gas_steam": 0.2537679479619838,
+    "gas_ocgt": 0.27988453199815794,
+    "battery_charging": 0.31262432358043946,
+    "battery_discharging": 1.0749024205916295
   },
   "ramp_violations": 0,
   "n_neg": 0,
-  "balance_resid_max_mw": 616.7805021000627,
+  "balance_resid_max_mw": 435.5119109551383,
   "method": "bilstm",
-  "note": "no-penalty pilot (the committed model)"
+  "epochs": 25,
+  "n_train": 16000,
+  "perturb": 0.0,
+  "context": 48
 }
