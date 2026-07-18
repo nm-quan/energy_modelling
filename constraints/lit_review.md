@@ -177,6 +177,44 @@ WAPE]; (2) placebo runs, effect ~0 on null scenarios [cheap, to add];
 training data]; (4) physics/constraint compliance [we have: hard head];
 (5) uncertainty quantification on the fill [optional, M&V-style].
 
+## 9. Constrained subspace imputation — the professor's reframe, per pipeline
+##    stage (2026-07-15; supervisor ref: GRIN, arXiv:2108.00298)
+
+The simulation track recast as: impute the missing BREAKDOWN subspace of the
+free window (totals known every step, carrying the scenario), bidirectionally
+(both boundaries observed), under hard physics. Literature per stage:
+
+- **Stage 0/1 — task = disaggregation (known total -> unknown split)**:
+  NILM/energy disaggregation: seq2point review (IEEE 10775789), attention
+  NILM (arXiv:1912.00759), VAE disaggregation (arXiv:2103.12177),
+  multi-task disaggregation w/ injection identification (arXiv:2508.14600).
+  Our balance identity = their aggregate-consistency, but ours is exact.
+- **Stage 2 — bidirectional imputation engines**: GRIN (arXiv:2108.00298,
+  ICLR'22 — bidirectional GRU + message-passing GNN across channels; the
+  supervisor's reference; our 6 sources + drivers form exactly such a small
+  relational graph), BRITS (1805.10572), SAITS (2202.08516), diffusion:
+  CSDI (2107.03502), SSSD (2208.09399), MTSCI consistent conditional
+  diffusion (2408.05740), ImputeFormer (KDD'24 3637528.3671751).
+- **Stage 3 — hard constraints on the fill**: our themes 1/3/4 (RAYEN,
+  HardNet, DC3, E2ELR, reconciliation) + the two-sided RAMP TUBE
+  (per-step band = intersection of forward cone from p_L and backward cone
+  from p_R; feasible iff |p_R - p_L| <= (N+1) r). Published combination of
+  generation+hard constraints: **Constrained Posterior Sampling**
+  (arXiv:2410.12652) — projection into the constraint set after each
+  diffusion denoising step; and Chronos-based imputation with feasibility
+  projection for energy (ScienceDirect S2666546826001060). These confirm
+  the pairing exists but is recent/rare — combined with ramp+balance+SOC
+  and counterfactual conditioning it is the project's gap/novelty.
+- **Stage 4 — training so the filler READS demand (not boundary-blending)**:
+  masked-block reconstruction + perturbed known-subspace/boundaries
+  (professor's synthetic augmentation); formal cousin = semi-synthetic
+  counterfactual benchmarks of theme 8 (CRN/Causal Transformer).
+- **Stage 5 — evaluation ladder**: dumb baseline = per-source linear
+  interpolation + balance rescale + ramp-tube clip (the imputation-track
+  persistence analogue); reconstruction WAPE on unperturbed held-out gaps;
+  placebo (g=0 -> capture ~0); violations = 0 incl. BOTH seams; optional
+  M&V-style uncertainty intervals (theme 8 toolbox).
+
 ## Priority shortlist (mapped to the study ladders)
 
 1. MinT-weighted delta allocation in RayenHeadFixedD (theme 4) — cheap,
