@@ -72,7 +72,7 @@ def impute_project(model, f, gw, context, device, g_pct):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--g", type=float, default=10.0)
-    ap.add_argument("--context", type=int, default=72)
+    ap.add_argument("--context", type=int, default=48)   # match the trained checkpoint
     ap.add_argument("--ckpt", default=str(OUT / "bilstm_imputer.pt"))
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
