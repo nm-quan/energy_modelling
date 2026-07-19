@@ -191,7 +191,11 @@ def main():
     torch.save(model.state_dict(), args.out)
     ev.update(method="bilstm", epochs=args.epochs, n_train=args.n_train,
               perturb=args.perturb, context=args.context)
-    (OUT / "bilstm_recon.json").write_text(json.dumps(ev, indent=2))
+    # results json follows the checkpoint name, so --smoke (-> bilstm_smoke.pt)
+    # writes bilstm_smoke_recon.json and never clobbers the real bilstm_recon.json
+    recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \
+        else Path(args.out).stem + "_recon.json"
+    (OUT / recon_name).write_text(json.dumps(ev, indent=2))
     print(f"\nBEST recon WAPE={ev['macro_WAPE']:.4f}  ramp={ev['ramp_violations']} "
           f"neg={ev['n_neg']} bal_max={ev['balance_resid_max_mw']:.1f} MW")
     for t in TARGETS:
