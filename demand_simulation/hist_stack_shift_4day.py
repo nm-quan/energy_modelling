@@ -65,6 +65,8 @@ def main():
     ap.add_argument("--weights", default=str(ROOT / "weights"))
     ap.add_argument("--model", default="itransformer_rayenfd",
                     help="model name in hcs.load_entries (default: the fixed-D RAYEN arm)")
+    ap.add_argument("--rayenfd-steam-pt", choices=["on", "off"], default="on",
+                    help="freeze gas_steam at persistence for rayenfd (matches +spt results)")
     ap.add_argument("--device", default=None)
     ap.add_argument("--rebound", type=float, default=None,
                     help="free-window rebound %% (default: max equal feasible q_max)")
@@ -83,7 +85,9 @@ def main():
     hcs.data_feat_cols = fc                       # rollout() reads this module global
     lb = data["lookback_steps"]
 
-    entries = hcs.load_entries(Path(args.weights), data, device, model_filter=[args.model])
+    entries = hcs.load_entries(
+        Path(args.weights), data, device, model_filter=[args.model],
+        rayenfd_steam_pt=args.rayenfd_steam_pt == "on")
     name, n_out, model = next(e for e in entries if e[0] == args.model)
     print(f"model: {name} (n_out={n_out})")
 

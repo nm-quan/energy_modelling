@@ -7,19 +7,10 @@ __pycache__/
 script/.oe_key
 
 # raw data: regenerate with script/pull_data_hist.py (or the bundled last365 files)
-data/*.csv
-data/*.parquet
-# ... except the small committed renewables extract for the stacked figures
-!data/renewables_extract_hist.parquet
-data/pull_cache/
-data/pull_hist.log
+
 
 # preprocessed: only the compressed prepared artifacts ship in the repo
-data/preprocessed/**
-!data/preprocessed/**/
-!data/preprocessed/**/prepared.npz
-!data/preprocessed/**/meta.json
-!data/preprocessed/**/scalers.npz
+
 
 # per-epoch resume checkpoints (machine-local; final weights ARE committed)
 ml/**/*_ckpt.pt
