@@ -131,29 +131,31 @@ def test_gap_windows(f: Flats, context: int = 72,
 # --------------------------- train sampling (random-position masks) ---------------------------
 
 def sample_train_windows(f: Flats, n: int, context: int = 72, gap: int = 36,
-                         seed: int = 0) -> dict:
-    """Sample `n` random imputation windows from the 5-yr train flat: a centred gap
-    with `context` real steps on each side. Returns model-ready tensors:
+                         seed: int = 0, split: str = "train") -> dict:
+    """Sample `n` random imputation windows from a flat split (`train` or `val`):
+    a centred gap with `context` real steps on each side. Returns model-ready
+    tensors:
       X    (n, W, 17)  features, with the 6 source cols ZEROED inside the gap
       mask (n, W, 1)   1 outside the gap, 0 inside (which steps are blanks)
       Y    (n, G, 6)   true sources (y-scaled, TARGETS order) in the gap
-    W = 2*context + gap. Boundaries pL/pR are just the last/first real step, already
-    inside X. No timestamps needed -- calendar features carry time-of-day, so a
-    centred random gap teaches time-aware, boundary-consistent filling."""
+      interp (n, G, 6) linear-interp skeleton between the two boundary steps
+    W = 2*context + gap. `val` draws from the held-out val split for early stopping
+    (no test leakage). No timestamps needed -- calendar features carry time-of-day."""
+    Xflat, Yflat = (f.Xtr, f.Ytr) if split == "train" else (f.Xva, f.Yva)
     rng = np.random.default_rng(seed)
     W = 2 * context + gap
-    N = f.Xtr.shape[0]
+    N = Xflat.shape[0]
     starts = rng.integers(0, N - W, size=n)
     tfi = np.asarray(TARGET_FEAT_IDX)
-    X = np.stack([f.Xtr[s:s + W] for s in starts]).astype(np.float32)   # (n,W,17)
+    X = np.stack([Xflat[s:s + W] for s in starts]).astype(np.float32)   # (n,W,17)
     # y-scaled truth in the gap, TARGETS order (from the target flat, not X)
     gs, ge = context, context + gap
-    Y = np.stack([f.Ytr[s + gs:s + ge] for s in starts]).astype(np.float32)  # (n,G,6)
+    Y = np.stack([Yflat[s + gs:s + ge] for s in starts]).astype(np.float32)  # (n,G,6)
     # linear-interp skeleton (y-scaled) from the boundary steps 10:55 / 14:00 -> the
     # model learns the DEVIATION from this, so it starts at the interp baseline and
     # can only improve (fill = interp + dev). Boundaries are real (outside the gap).
-    pL = f.Ytr[starts + gs - 1]                                        # (n,6) y-scaled
-    pR = f.Ytr[starts + ge]                                            # (n,6)
+    pL = Yflat[starts + gs - 1]                                        # (n,6) y-scaled
+    pR = Yflat[starts + ge]                                            # (n,6)
     t = (np.arange(1, gap + 1) / (gap + 1))[None, :, None]             # (1,G,1)
     interp = (pL[:, None, :] + t * (pR - pL)[:, None, :]).astype(np.float32)  # (n,G,6)
     mask = np.ones((n, W, 1), dtype=np.float32)
