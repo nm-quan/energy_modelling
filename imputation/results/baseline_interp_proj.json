@@ -1,0 +1,17 @@
+{
+  "method": "interp+proj",
+  "n_days": 186,
+  "gap_steps": 36,
+  "macro_WAPE": 0.4055907148883992,
+  "per_channel_WAPE": {
+    "hydro": 0.38807564975362585,
+    "coal_brown": 0.02105191935655487,
+    "gas_steam": 0.21485185886403782,
+    "gas_ocgt": 0.3571265966092699,
+    "battery_charging": 0.31669559752322696,
+    "battery_discharging": 1.13574266722368
+  },
+  "ramp_violations": 0,
+  "n_neg": 0,
+  "balance_resid_max_mw": 648.7444469071743
+}

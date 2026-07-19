@@ -127,6 +127,94 @@ sequence-model literature calls this exposure bias:
   3h windows (matching the free-window protocol) so the closed-loop mix stops
   drifting — attacks the SAME failure as the seam-snap ramp violations.
 
+## 8. Counterfactual / what-if trajectory estimation (NEW — the simulation
+##    track's true task family; see study discussion 2026-07-15)
+
+Our scenario runs are formally: estimate the dispatch trajectory under a
+MODIFIED exogenous driver (demand +g%, price 0) inside a window whose
+surroundings are observed. Fields that do this successfully:
+
+- **Causal ML for counterfactual outcomes over time** (medicine/econ):
+  RMSN (Lim, NeurIPS 2018), Counterfactual Recurrent Network (Bica, ICLR
+  2020), Causal Transformer (Melnychuk, ICML 2022), G-Transformer (2024).
+  Treatment sequence = our demand modification. Validated on SEMI-SYNTHETIC
+  worlds where counterfactual truth is known by construction — the formal
+  version of the masked-gap + perturbation training idea.
+- **Demand-response baseline estimation** (the closest applied cousin,
+  deployed commercially): baseline load = "what consumption WOULD have been
+  without the DR event" — the mirror image of our task (they subtract an
+  intervention, we inject one). Settlement money is paid on these
+  counterfactuals daily. Validation: accuracy on NON-event days = exactly
+  our reconstruction-WAPE gate. Reviews: Energies 15:5259 (2022); physics-
+  informed baselines (Applied Energy 2025); generalized synthetic control
+  for DR (arXiv:2604.18469).
+- **Synthetic control / CausalImpact** (policy evaluation; energy
+  applications incl. market liberalization, renewable action plans):
+  counterfactual trajectory from a weighted donor pool. Borrow the
+  **placebo test**: run the full pipeline on windows with NO modification —
+  the estimated "response" must be ~0. Cheap, strong validity check we can
+  run verbatim.
+- **Building-energy M&V "avoided energy use"** (IPMVP Option C, ASHRAE
+  Guideline 14): an INSTITUTIONALIZED counterfactual with uncertainty
+  standards; LBNL evaluation of savings-uncertainty methods; NeurIPS 2025
+  interpretable counterfactual M&V. Borrow: report prediction intervals on
+  counterfactual fills (fractional-uncertainty discipline).
+- **Conditional scenario generation for grids** (cGAN/diffusion:
+  operation-adversarial cGAN internalizing DC-OPF, arXiv:2110.02152;
+  DiffCharge 2308.09857; production-simulation augmentation 2412.12146):
+  generative models conditioned on drivers/risk labels, some with physics
+  embedded — the generative sibling of our hard-constraint head.
+- **Industry practice**: resource-adequacy and DOE reliability studies
+  re-run 12+ historical weather years hour-by-hour with modified load
+  traces; production-cost models (PLEXOS-class) are the optimizer-based
+  standard for exactly our question. Our learned simulator is the ML
+  surrogate of that workflow.
+
+Cross-field validation toolbox for counterfactuals (no ground truth needed):
+(1) held-out reconstruction on UNMODIFIED data [we have: reconstruction
+WAPE]; (2) placebo runs, effect ~0 on null scenarios [cheap, to add];
+(3) semi-synthetic worlds with known counterfactual truth [= perturbation
+training data]; (4) physics/constraint compliance [we have: hard head];
+(5) uncertainty quantification on the fill [optional, M&V-style].
+
+## 9. Constrained subspace imputation — the professor's reframe, per pipeline
+##    stage (2026-07-15; supervisor ref: GRIN, arXiv:2108.00298)
+
+The simulation track recast as: impute the missing BREAKDOWN subspace of the
+free window (totals known every step, carrying the scenario), bidirectionally
+(both boundaries observed), under hard physics. Literature per stage:
+
+- **Stage 0/1 — task = disaggregation (known total -> unknown split)**:
+  NILM/energy disaggregation: seq2point review (IEEE 10775789), attention
+  NILM (arXiv:1912.00759), VAE disaggregation (arXiv:2103.12177),
+  multi-task disaggregation w/ injection identification (arXiv:2508.14600).
+  Our balance identity = their aggregate-consistency, but ours is exact.
+- **Stage 2 — bidirectional imputation engines**: GRIN (arXiv:2108.00298,
+  ICLR'22 — bidirectional GRU + message-passing GNN across channels; the
+  supervisor's reference; our 6 sources + drivers form exactly such a small
+  relational graph), BRITS (1805.10572), SAITS (2202.08516), diffusion:
+  CSDI (2107.03502), SSSD (2208.09399), MTSCI consistent conditional
+  diffusion (2408.05740), ImputeFormer (KDD'24 3637528.3671751).
+- **Stage 3 — hard constraints on the fill**: our themes 1/3/4 (RAYEN,
+  HardNet, DC3, E2ELR, reconciliation) + the two-sided RAMP TUBE
+  (per-step band = intersection of forward cone from p_L and backward cone
+  from p_R; feasible iff |p_R - p_L| <= (N+1) r). Published combination of
+  generation+hard constraints: **Constrained Posterior Sampling**
+  (arXiv:2410.12652) — projection into the constraint set after each
+  diffusion denoising step; and Chronos-based imputation with feasibility
+  projection for energy (ScienceDirect S2666546826001060). These confirm
+  the pairing exists but is recent/rare — combined with ramp+balance+SOC
+  and counterfactual conditioning it is the project's gap/novelty.
+- **Stage 4 — training so the filler READS demand (not boundary-blending)**:
+  masked-block reconstruction + perturbed known-subspace/boundaries
+  (professor's synthetic augmentation); formal cousin = semi-synthetic
+  counterfactual benchmarks of theme 8 (CRN/Causal Transformer).
+- **Stage 5 — evaluation ladder**: dumb baseline = per-source linear
+  interpolation + balance rescale + ramp-tube clip (the imputation-track
+  persistence analogue); reconstruction WAPE on unperturbed held-out gaps;
+  placebo (g=0 -> capture ~0); violations = 0 incl. BOTH seams; optional
+  M&V-style uncertainty intervals (theme 8 toolbox).
+
 ## Priority shortlist (mapped to the study ladders)
 
 1. MinT-weighted delta allocation in RayenHeadFixedD (theme 4) — cheap,
