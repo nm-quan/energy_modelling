@@ -86,7 +86,9 @@ def evaluate(model, f, gws, device, context):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--epochs", type=int, default=15)
+    ap.add_argument("--epochs", type=int, default=100)
+    ap.add_argument("--patience", type=int, default=10,
+                    help="early stop after this many epochs with no val-recon improvement")
     ap.add_argument("--n-train", type=int, default=40000)
     ap.add_argument("--context", type=int, default=72)
     ap.add_argument("--hidden", type=int, default=128)
@@ -127,37 +129,60 @@ def main():
     model = BiLSTMImputer(hidden=args.hidden).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
 
-    # fixed val set of windows for early stopping (reconstruction on real gaps)
-    best = float("inf"); best_state = None
+    gs, ge = args.context, args.context + 36
+    y_mw = (f.y_scale, f.y_mean)
+
+    # Train set sampled ONCE (reused each epoch -- standard, and avoids the per-epoch
+    # 3.7 GB resample). Held-out VAL set from the val split (random gaps) drives early
+    # stopping, so #epochs is NOT selected on test (no leakage); test is scored once
+    # at the end on the val-selected best.
+    tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed, split="train")
+    if args.perturb > 0:
+        tr["X"] = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng)
+    va = sample_train_windows(f, 4000, context=args.context, seed=args.seed + 777, split="val")
+    va_fill_truth = (va["interp"], va["Y"])                  # for raw val recon (interp+dev vs Y)
+
+    def val_recon_wape():
+        model.eval()
+        with torch.no_grad():
+            num = np.zeros(6); den = np.zeros(6)
+            for i in range(0, len(va["X"]), 512):
+                dev = model(torch.from_numpy(va["X"][i:i + 512]).to(device),
+                            torch.from_numpy(va["mask"][i:i + 512]).to(device))[:, gs:ge].cpu().numpy()
+                fill = (va["interp"][i:i + 512] + dev) * y_mw[0] + y_mw[1]
+                truth = va["Y"][i:i + 512] * y_mw[0] + y_mw[1]
+                num += np.abs(fill - truth).sum((0, 1)); den += np.abs(truth).sum((0, 1))
+        return float(np.mean(num / np.clip(den, 1e-6, None)))
+
+    best = float("inf"); best_state = None; waited = 0
     for ep in range(1, args.epochs + 1):
         t0 = time.time()
-        tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed + ep)
-        X = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng) if args.perturb > 0 else tr["X"]
-        Xg = X[:, args.context:args.context + tr["gap"]]      # gap-slice features for balance term
-        gs, ge = args.context, args.context + tr["gap"]
-        model.train(); perm = rng.permutation(len(X)); tot = 0.0
-        for i in range(0, len(X), args.batch):
+        model.train(); perm = rng.permutation(len(tr["X"])); tot = 0.0
+        for i in range(0, len(tr["X"]), args.batch):
             j = perm[i:i + args.batch]
-            xb = torch.from_numpy(X[j]).to(device)
+            xb = torch.from_numpy(tr["X"][j]).to(device)
             mb = torch.from_numpy(tr["mask"][j]).to(device)
             yb = torch.from_numpy(tr["Y"][j]).to(device)
             interp = torch.from_numpy(tr["interp"][j]).to(device)
-            xnd = torch.from_numpy(Xg[j][:, :, ND_COL]).to(device)
+            xnd = torch.from_numpy(tr["X"][j][:, gs:ge, ND_COL]).to(device)
             dev = model(xb, mb)[:, gs:ge]
             out = interp + dev                                # residual: interp + learned deviation
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
                                          ys_mean, ys_scale, sign, args.lam_bal)
             loss = loss + args.lam_dev * (dev ** 2).mean()    # keep dev small: stay near interp
-                                                              # unless the data justifies moving
             opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * len(j)
-        ev = evaluate(model, f, gws, device, args.context)
-        flag = ""
-        if ev["macro_WAPE"] < best:
-            best = ev["macro_WAPE"]; best_state = {k: v.detach().cpu().clone()
-                                                   for k, v in model.state_dict().items()}
-            flag = " *"
-        print(f"  ep{ep:02d} loss={tot/len(X):.4f} recon_WAPE={ev['macro_WAPE']:.4f} "
-              f"ramp={ev['ramp_violations']} neg={ev['n_neg']} ({time.time()-t0:.0f}s){flag}", flush=True)
+        vw = val_recon_wape()
+        stop = False
+        if vw < best - 1e-5:
+            best = vw; waited = 0
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            waited += 1; stop = waited >= args.patience
+        print(f"  ep{ep:03d} loss={tot/len(tr['X']):.4f} val_recon_WAPE={vw:.4f} "
+              f"(best {best:.4f}, waited {waited}/{args.patience}) ({time.time()-t0:.0f}s)"
+              f"{' *' if waited == 0 else ''}{'  EARLY STOP' if stop else ''}", flush=True)
+        if stop:
+            break
 
     if best_state:
         model.load_state_dict(best_state)
@@ -166,7 +191,11 @@ def main():
     torch.save(model.state_dict(), args.out)
     ev.update(method="bilstm", epochs=args.epochs, n_train=args.n_train,
               perturb=args.perturb, context=args.context)
-    (OUT / "bilstm_recon.json").write_text(json.dumps(ev, indent=2))
+    # results json follows the checkpoint name, so --smoke (-> bilstm_smoke.pt)
+    # writes bilstm_smoke_recon.json and never clobbers the real bilstm_recon.json
+    recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \
+        else Path(args.out).stem + "_recon.json"
+    (OUT / recon_name).write_text(json.dumps(ev, indent=2))
     print(f"\nBEST recon WAPE={ev['macro_WAPE']:.4f}  ramp={ev['ramp_violations']} "
           f"neg={ev['n_neg']} bal_max={ev['balance_resid_max_mw']:.1f} MW")
     for t in TARGETS:
