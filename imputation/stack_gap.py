@@ -35,6 +35,19 @@ import stack_plots as sp                     # noqa: E402
 
 STACK = ["coal_brown", "gas_steam", "gas_ocgt", "hydro", "battery_discharging"]
 OUT = HERE / "results" / "figure"
+TABLE = HERE.parent / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_totdem" / "table.parquet"
+
+
+def load_renewables(stamps):
+    """Actual wind + utility solar (MW) aligned to the span stamps, from table.parquet.
+    These are weather-driven and stay FIXED under a demand shock, so they are the same
+    in all three panels; only the dispatchable stack below them changes. net_demand (the
+    dashed line, = Σ dispatch) plus these ≈ total demand -> net_demand = demand − wind −
+    solar, made visible."""
+    tab = pd.read_parquet(TABLE)
+    tab.index = pd.DatetimeIndex(tab.index)
+    r = tab.reindex(pd.DatetimeIndex(stamps))[["wind", "solar_utility"]].fillna(0.0).clip(lower=0)
+    return r["wind"].to_numpy(), r["solar_utility"].to_numpy()
 
 
 def consecutive_days(gws, n_days):
@@ -46,16 +59,22 @@ def consecutive_days(gws, n_days):
     raise SystemExit(f"no run of {n_days} consecutive test gap-days found")
 
 
-def draw(ax, t, disp, nd_line, gaps):
+def draw(ax, t, disp, nd_line, demand_line, gaps, wind, solar):
     ti = {s: i for i, s in enumerate(TARGETS)}
     base = np.zeros(len(t))
     for k in STACK:
         top = base + disp[:, ti[k]]
         ax.fill_between(t, base, top, color=sp.COLORS[k], alpha=0.9, label=k)
         base = top
+    # renewables on top (weather-driven -> fixed across panels); base here == Σ dispatch.
+    # dispatch + wind + solar ≈ total demand, so the gap between the dispatch top
+    # (net_demand, dashed) and total demand (dotted) IS the renewable contribution.
+    ax.fill_between(t, base, base + wind, color=sp.WIND, alpha=0.55, label="wind")
+    ax.fill_between(t, base + wind, base + wind + solar, color=sp.SOLAR, alpha=0.7, label="solar_utility")
     ax.fill_between(t, 0, -disp[:, ti["battery_charging"]], color=sp.COLORS["battery_charging"],
                     alpha=0.6, label="battery_charging (load)")
-    ax.plot(t, nd_line, "k--", lw=1.0, label="net demand")
+    ax.plot(t, nd_line, "k--", lw=1.1, label="net demand (= Σ dispatch = demand − wind − solar)")
+    ax.plot(t, demand_line, color="dimgray", ls=":", lw=1.2, label="total demand")
     for p0, p1 in gaps:
         ax.axvspan(p0, p1, color="gold", alpha=0.15)
     ax.axhline(0, color="k", lw=0.6); ax.margins(x=0); ax.grid(True, axis="y", alpha=0.3)
@@ -82,24 +101,27 @@ def main():
     span_rows = lb + pos
     stamps = idx[pos]
     disp = f.y_to_mw(f.Yte[span_rows])
-    nd = f.col_mw(f.Xte, 6)[span_rows]
-    base_fill = disp.copy(); scen_fill = disp.copy(); nd_scen = nd.copy()
+    nd = f.col_mw(f.Xte, 6)[span_rows]                    # net_demand = Σ dispatch
+    demand = f.col_mw(f.Xte, 7)[span_rows]                # total demand_mw
+    base_fill = disp.copy(); scen_fill = disp.copy(); nd_scen = nd.copy(); demand_scen = demand.copy()
     gaps = []
     for gw in run:
         Pb, _, _ = impute_project(model, f, gw, args.context, "cpu", 0.0)
         Ps, _, nds = impute_project(model, f, gw, args.context, "cpu", args.g)
         gpos = np.searchsorted(span_rows, gw.gap_idx)     # gap positions within the span
         base_fill[gpos] = Pb; scen_fill[gpos] = Ps; nd_scen[gpos] = nds
+        demand_scen[gpos] = demand[gpos] * (1 + args.g / 100.0)   # total demand raised in the gap
         gaps.append((gpos[0], gpos[-1]))
 
+    wind, solar = load_renewables(stamps)                 # weather-driven, fixed across panels
     t = np.arange(len(disp))
     f2, axes = plt.subplots(3, 1, figsize=(16, 11), sharex=True, sharey=True)
-    for ax, (name, d, ndl) in zip(axes, [
-            ("actual (real dispatch)", disp, nd),
-            ("imputed — base (g=0): gaps match actual, continuous across every edge", base_fill, nd),
-            (f"imputed — +{args.g:g}% demand: stack rises to the raised line, still continuous at 14:00",
-             scen_fill, nd_scen)]):
-        draw(ax, t, d, ndl, gaps)
+    for ax, (name, d, ndl, deml) in zip(axes, [
+            ("actual (real dispatch)", disp, nd, demand),
+            ("imputed — base (g=0): gaps match actual, continuous across every edge", base_fill, nd, demand),
+            (f"imputed — +{args.g:g}% demand (renewables fixed, so the +{args.g:g}% lands on "
+             "dispatch): net_demand rises, still continuous at 14:00", scen_fill, nd_scen, demand_scen)]):
+        draw(ax, t, d, ndl, deml, gaps, wind, solar)
         ax.set_title(name, loc="left", fontsize=10); ax.set_ylabel("MW")
     day_starts = [np.searchsorted(pos, np.where(idx.normalize() == d)[0][0]) for d in sorted(day_set)]
     axes[2].set_xticks(day_starts)

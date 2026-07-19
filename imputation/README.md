@@ -38,37 +38,46 @@ ramps, box, SOC.
 
 ### Reconstruction WAPE — mask real 11–14, fill, score vs measured truth
 
-| channel | interp (baseline) | bi-LSTM (residual) |
+100-epoch run, **early-stopped on a held-out VAL set** (random gaps from the val
+split — no test leakage; stopped ep28, val best 0.315), test scored once:
+
+| channel | interp (baseline) | bi-LSTM (100ep, val-selected) |
 | --- | --- | --- |
-| coal_brown | **0.023** | 0.026 |
-| gas_ocgt | **0.108** | 0.280 |
-| gas_steam | **0.215** | 0.254 |
-| hydro | **0.273** | 0.344 |
-| battery_charging | 0.317 | **0.313** |
-| battery_discharging | 1.136 | **1.075** |
-| **macro** | **0.345** | 0.382 |
+| coal_brown | **0.023** | 0.032 |
+| gas_ocgt | **0.108** | 0.233 |
+| gas_steam | **0.215** | 0.508 |
+| hydro | **0.273** | 0.370 |
+| battery_charging | 0.317 | **0.291** |
+| battery_discharging | **1.136** | 1.203 |
+| **macro** | **0.345** | 0.440 |
 
-The residual bi-LSTM (interp + learned deviation) **approaches but does not beat**
-interpolation on this CPU pilot — macro 0.382 (no penalty) / 0.392 (`--lam-dev`
-0.05); the reconstruction plateaus at ~0.38–0.39 and `lam-dev` did not help, so
-this is a real undertraining/architecture ceiling, not a knob. It slightly
-improves the batteries (the hard channels) but adds noise on the smooth ones. The
-route to actually beat 0.345 is GPU + more data + a GRIN engine (graph across
-channels, so coal/hydro/battery relations are modelled) — not a CPU regularizer
-sweep. **Batteries stay the wall in imputation too** (batt_dis 1.1) — same
-optimizer-not-pattern reason as the forecasting track (theme 6). So the reframe's
-value is NOT lower WAPE; it is the counterfactual behavior below.
+**Honest verdict: the bi-LSTM does NOT beat interpolation on reconstruction.** With
+correct methodology (val early-stop, not test) it is 0.440 vs 0.345. Note val
+(random gaps) reached 0.315 but test (the harder MIDDAY 11–14 gaps — battery-heavy,
+solar-trough) is 0.440: a val/test difficulty mismatch, plus overfitting (train
+loss fell 0.14→0.10 while val plateaued). The earlier "0.382" pilot was partly
+test-leaked selection + per-epoch augmentation. **Batteries are the wall in
+imputation too** (optimizer-not-pattern, theme 6), and they dominate the macro.
 
-### Counterfactual — the actual deliverable (186 test days)
+**Consequence — the honest simulator is interpolation + the hard-constraint
+projection**, not the learned model: it is more accurate (0.345), seam-free,
+non-negative, ramp-clean, AND it responds to +g% (the projection snaps Σ dispatch
+onto the raised net_demand by construction). This mirrors the forecasting track,
+where persistence+anchor beat the neural models. A learned model only earns its
+keep with the GRIN engine (channel graph) + GPU, which is the open next step.
 
-| check | result |
+### Counterfactual — the actual deliverable (186 test days, corrected +g%×demand physics)
+
+| check | bi-LSTM (100ep) |
 | --- | --- |
-| placebo (g=0): spurious response | **0.0%** (coal & batt_dis), track p50 46 MW |
-| scenario (+10%): **capture** | **+0.836** (fleet delivers 84% of the extra load) |
-| scenario tracking p50 | **6 MW** |
+| placebo (g=0): spurious response | **0.0%**, track p50 20 MW |
+| scenario (+10%): **capture** | **+0.940** (fleet delivers 94% of the extra load) |
+| scenario tracking p50 | **7 MW** |
 | **ramp violations incl. both seams** | **0** |
-| n_neg | **0** |
-| SOC-infeasible gap-days | **0 / 186** |
+| n_neg / SOC-infeasible gap-days | **0 / 0-of-186** |
+
+(Demand shock now correctly = +g%×demand with renewables fixed, so capture rose
+0.84→0.94 — the dispatchables absorb the whole increase, as they physically must.)
 
 This is the point: **the 2:05 seam is gone by construction** (0 violations
 including both boundaries, vs the forecasting model's 199 seam artifacts), the
