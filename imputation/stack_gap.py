@@ -50,16 +50,35 @@ def load_renewables(stamps):
     return r["wind"].to_numpy(), r["solar_utility"].to_numpy()
 
 
-def consecutive_days(gws, n_days):
-    """First run of n_days calendar-consecutive gap-days."""
+def consecutive_runs(gws, n_days):
+    """All runs of n_days calendar-consecutive gap-days (each a list of GapWindow)."""
+    runs = []
     for i in range(len(gws) - n_days + 1):
         run = gws[i:i + n_days]
         if all((run[k + 1].day - run[k].day).days == 1 for k in range(n_days - 1)):
-            return run
-    raise SystemExit(f"no run of {n_days} consecutive test gap-days found")
+            runs.append(run)
+    if not runs:
+        raise SystemExit(f"no run of {n_days} consecutive test gap-days found")
+    return runs
 
 
-def draw(ax, t, disp, nd_line, demand_line, gaps, wind, solar):
+def pick_run(f, gws, n_days, mode="high", start=0):
+    """Choose which consecutive-day run to plot. mode='high' ranks runs by median
+    midday (11-14) demand and takes the highest -- the +g% rise is proportional to
+    demand, so a low-demand holiday week (e.g. Jan 1, ~1450 MW) makes a +10% step of
+    only ~145 MW that is invisible on a 7000 MW axis. mode='first' keeps the old
+    calendar-first behaviour. `start` skips that many runs in the chosen order."""
+    runs = consecutive_runs(gws, n_days)
+
+    def midday_demand(run):
+        return float(np.median([f.col_mw(f.Xte, 7)[gw.gap_idx].mean() for gw in run]))
+
+    if mode == "high":
+        runs = sorted(runs, key=midday_demand, reverse=True)
+    return runs[min(start, len(runs) - 1)]
+
+
+def draw(ax, t, disp, nd_line, demand_line, gaps, wind, solar, nd_ref=None):
     ti = {s: i for i, s in enumerate(TARGETS)}
     base = np.zeros(len(t))
     for k in STACK:
@@ -73,6 +92,19 @@ def draw(ax, t, disp, nd_line, demand_line, gaps, wind, solar):
     ax.fill_between(t, base + wind, base + wind + solar, color=sp.SOLAR, alpha=0.7, label="solar_utility")
     ax.fill_between(t, 0, -disp[:, ti["battery_charging"]], color=sp.COLORS["battery_charging"],
                     alpha=0.6, label="battery_charging (load)")
+    # In the +g% panel, overlay the BASE net_demand (faint) and shade the added load
+    # inside each gap, so the rise is visible WITHIN this one panel (no cross-panel
+    # eyeballing needed). nd_ref is the g=0 net_demand; nd_line is the raised one.
+    if nd_ref is not None:
+        ax.plot(t, nd_ref, color="k", ls="--", lw=0.8, alpha=0.3)
+        for j, (p0, p1) in enumerate(gaps):
+            s = slice(p0, p1 + 1)
+            ax.fill_between(t[s], nd_ref[s], nd_line[s], color="red", alpha=0.30,
+                            label="added load (+g% demand)" if j == 0 else None)
+            mid = (p0 + p1) // 2
+            rise = nd_line[s].mean() - nd_ref[s].mean()
+            ax.annotate(f"+{rise:.0f} MW", (mid, nd_line[mid]), textcoords="offset points",
+                        xytext=(0, 8), ha="center", fontsize=7, color="darkred", weight="bold")
     ax.plot(t, nd_line, "k--", lw=1.1, label="net demand (= Σ dispatch = demand − wind − solar)")
     ax.plot(t, demand_line, color="dimgray", ls=":", lw=1.2, label="total demand")
     for p0, p1 in gaps:
@@ -85,13 +117,17 @@ def main():
     ap.add_argument("--days", type=int, default=4)
     ap.add_argument("--g", type=float, default=10.0)
     ap.add_argument("--context", type=int, default=48)
+    ap.add_argument("--pick", choices=["high", "first"], default="high",
+                    help="'high' (default): the highest-midday-demand consecutive run, "
+                         "so the +g%% rise is large and visible; 'first': calendar-first "
+                         "(warning: that is the Jan-1 holiday trough, ~145 MW rise).")
     ap.add_argument("--start", type=int, default=0, help="skip this many candidate runs")
     ap.add_argument("--ckpt", default=str(HERE / "results" / "bilstm_imputer.pt"))
     args = ap.parse_args()
 
     f = load_flats()
     gws = test_gap_windows(f, context=args.context)
-    run = consecutive_days(gws[args.start:], args.days)
+    run = pick_run(f, gws, args.days, mode=args.pick, start=args.start)
     model = BiLSTMImputer(); model.load_state_dict(torch.load(args.ckpt, map_location="cpu")); model.eval()
 
     # full-day flat rows for the N-day span
@@ -116,12 +152,14 @@ def main():
     wind, solar = load_renewables(stamps)                 # weather-driven, fixed across panels
     t = np.arange(len(disp))
     f2, axes = plt.subplots(3, 1, figsize=(16, 11), sharex=True, sharey=True)
-    for ax, (name, d, ndl, deml) in zip(axes, [
-            ("actual (real dispatch)", disp, nd, demand),
-            ("imputed — base (g=0): gaps match actual, continuous across every edge", base_fill, nd, demand),
-            (f"imputed — +{args.g:g}% demand (renewables fixed, so the +{args.g:g}% lands on "
-             "dispatch): net_demand rises, still continuous at 14:00", scen_fill, nd_scen, demand_scen)]):
-        draw(ax, t, d, ndl, deml, gaps, wind, solar)
+    panels = [
+        ("actual (real dispatch)", disp, nd, demand, None),
+        ("imputed — base (g=0): gaps match actual, continuous across every edge", base_fill, nd, demand, None),
+        (f"imputed — +{args.g:g}% demand (renewables fixed, so the +{args.g:g}% lands on "
+         "dispatch): net_demand steps up by +g%×demand inside each gap (red band)",
+         scen_fill, nd_scen, demand_scen, nd)]           # last panel: nd_ref = base net_demand
+    for ax, (name, d, ndl, deml, ndref) in zip(axes, panels):
+        draw(ax, t, d, ndl, deml, gaps, wind, solar, nd_ref=ndref)
         ax.set_title(name, loc="left", fontsize=10); ax.set_ylabel("MW")
     day_starts = [np.searchsorted(pos, np.where(idx.normalize() == d)[0][0]) for d in sorted(day_set)]
     axes[2].set_xticks(day_starts)
