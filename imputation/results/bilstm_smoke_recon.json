@@ -1,0 +1,19 @@
+{
+  "macro_WAPE": 0.4519199491814603,
+  "per_channel_WAPE": {
+    "hydro": 0.38040592034275444,
+    "coal_brown": 0.025434073546206217,
+    "gas_steam": 0.3449537440441559,
+    "gas_ocgt": 0.5780014721398308,
+    "battery_charging": 0.31160090235434673,
+    "battery_discharging": 1.0711235826614678
+  },
+  "ramp_violations": 0,
+  "n_neg": 0,
+  "balance_resid_max_mw": 573.6635923603303,
+  "method": "bilstm",
+  "epochs": 2,
+  "n_train": 2000,
+  "perturb": 0.0,
+  "context": 48
+}
