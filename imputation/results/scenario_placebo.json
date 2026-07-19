@@ -11,10 +11,10 @@
     "battery_charging": 0.0,
     "battery_discharging": 0.0
   },
-  "track_p50_mw": 45.774723682789954,
-  "track_p95_mw": 223.6173420276079,
+  "track_p50_mw": 20.39469080284084,
+  "track_p95_mw": 122.49342364843415,
   "ramp_violations_incl_seams": 0,
   "n_neg": 0,
-  "balance_resid_max_mw": 435.5119109551383,
+  "balance_resid_max_mw": 233.64123804487144,
   "soc_infeasible_gapdays": 0
 }
