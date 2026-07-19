@@ -46,10 +46,17 @@ def impute_project(model, f, gw, context, device, g_pct):
     gsl = slice(context, context + N)
     nd_mw = gw.nd_mw.copy()
     if g_pct:
-        for col in (ND_COL, DEM_COL):                       # raise known subspace in the gap
-            mw = xs[gsl, col] * f.x_scale[col] + f.x_mean[col]
-            xs[gsl, col] = (mw * (1 + g_pct / 100) - f.x_mean[col]) / f.x_scale[col]
-        nd_mw = nd_mw * (1 + g_pct / 100)                   # projection target = raised nd
+        # Demand shock lands ENTIRELY on the dispatchables: wind/solar/curtailment
+        # are weather-driven and do NOT scale with demand, so
+        #   net_demand_scen = demand_scen - wind - solar - curt
+        #                   = net_demand_base + g%*demand   (renewables cancel)
+        # i.e. add g%*demand, do NOT scale net_demand by (1+g%).
+        dem = xs[gsl, DEM_COL] * f.x_scale[DEM_COL] + f.x_mean[DEM_COL]   # base demand MW
+        shock = (g_pct / 100.0) * dem                                     # extra load (MW)
+        xs[gsl, DEM_COL] = (dem * (1 + g_pct / 100) - f.x_mean[DEM_COL]) / f.x_scale[DEM_COL]
+        nd_base = xs[gsl, ND_COL] * f.x_scale[ND_COL] + f.x_mean[ND_COL]
+        xs[gsl, ND_COL] = (nd_base + shock - f.x_mean[ND_COL]) / f.x_scale[ND_COL]
+        nd_mw = nd_mw + shock                               # projection target = base + shock
     m = np.ones((xs.shape[0], 1), np.float32); m[gsl] = 0.0
     xs[gsl][:, tfi] = 0.0
     with torch.no_grad():
