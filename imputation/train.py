@@ -1,17 +1,23 @@
 """Train the bi-LSTM gap imputer on 5 years of masked windows, evaluate vs the
 interpolation baseline on the real test 11:00-14:00 windows.
 
-Training: random-position masked gaps over the 394k-row train flat, with optional
-DEMAND PERTURBATION (professor's synthetic-data idea) so the model can't score by
-boundary-blending and must read net_demand/demand — the counterfactual-robustness
-step. Loss = masked reconstruction + soft balance.
+Training: random-position masked gaps over the 394k-row train flat.
+Loss = masked reconstruction + soft balance (+ optional L2 on the deviation).
+NOTE --perturb stays OFF by default: perturbing demand while keeping the real
+breakdown as the target teaches the model to IGNORE demand (measured); demand
+responsiveness comes from natural 5-yr variation + the balance term/projection.
+
+Early stopping: on MIDDAY-MATCHED val windows (gaps pinned to 11:00-14:00 in the
+held-out val split -- same task as test). The test set is scored exactly ONCE,
+after training, on the val-selected best model. Leakage history in
+gap_data.sample_val_midday_windows.
 
 Eval (deployment-matched): mask the real 11-14 window, impute, PROJECT to hard
 feasibility (constraints.project_gap), score reconstruction WAPE vs measured truth,
 and check violations incl. both seams.
 
-    python3 imputation/train.py --epochs 15 --n-train 40000 --perturb 0.5
-    python3 imputation/train.py --smoke        # tiny, CPU, sanity
+    python3 imputation/train.py --epochs 100 --patience 10   # full run (GPU)
+    python3 imputation/train.py --smoke                      # tiny, CPU, sanity
 """
 from __future__ import annotations
 
@@ -27,10 +33,10 @@ import torch
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from gap_data import (load_flats, test_gap_windows, sample_train_windows,      # noqa: E402
+                      sample_val_midday_windows,
                       TARGETS, SIGN, TARGET_FEAT_IDX, ND_COL, DEM_COL)
 import constraints as C                                                        # noqa: E402
 from model import BiLSTMImputer, masked_loss                                   # noqa: E402
-from baseline import linear_fill                                               # noqa: E402
 
 OUT = HERE / "results"
 
@@ -90,7 +96,7 @@ def main():
     ap.add_argument("--patience", type=int, default=10,
                     help="early stop after this many epochs with no val-recon improvement")
     ap.add_argument("--n-train", type=int, default=40000)
-    ap.add_argument("--context", type=int, default=72)
+    ap.add_argument("--context", type=int, default=48)
     ap.add_argument("--hidden", type=int, default=128)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -133,14 +139,16 @@ def main():
     y_mw = (f.y_scale, f.y_mean)
 
     # Train set sampled ONCE (reused each epoch -- standard, and avoids the per-epoch
-    # 3.7 GB resample). Held-out VAL set from the val split (random gaps) drives early
-    # stopping, so #epochs is NOT selected on test (no leakage); test is scored once
-    # at the end on the val-selected best.
+    # 3.7 GB resample). Early stopping runs on MIDDAY-MATCHED windows from the held-out
+    # val split: same 11:00-14:00 task as test, so val estimates the deployed quantity.
+    # (History: v1 selected epochs on TEST = leakage; v2 on random-position val gaps =
+    # no leak but easier than midday, val 0.31 vs test 0.44 -- see
+    # gap_data.sample_val_midday_windows.) Test is scored ONCE, after training.
     tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed, split="train")
     if args.perturb > 0:
         tr["X"] = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng)
-    va = sample_train_windows(f, 4000, context=args.context, seed=args.seed + 777, split="val")
-    va_fill_truth = (va["interp"], va["Y"])                  # for raw val recon (interp+dev vs Y)
+    va = sample_val_midday_windows(f, context=args.context)
+    print(f"val: {len(va['X'])} midday-matched 11:00-14:00 windows (held-out val split)")
 
     def val_recon_wape():
         model.eval()
@@ -170,7 +178,8 @@ def main():
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
                                          ys_mean, ys_scale, sign, args.lam_bal)
             loss = loss + args.lam_dev * (dev ** 2).mean()    # keep dev small: stay near interp
-            opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * len(j)
+            opt.zero_grad(); loss.backward(); opt.step()
+            tot += float(loss.detach()) * len(j)
         vw = val_recon_wape()
         stop = False
         if vw < best - 1e-5:

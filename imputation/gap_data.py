@@ -35,6 +35,7 @@ SIGN = np.array([1, 1, 1, 1, -1, 1], dtype=np.float64)
 # map each TARGETS entry to its column in the 17-feature vector (feat order above)
 TARGET_FEAT_IDX = [0, 3, 1, 2, 4, 5]
 ND_COL, DEM_COL, PRICE_COL = 6, 7, 8
+HOUR_SIN_COL, HOUR_COS_COL = 9, 10
 GAP_HOURS = (11, 14)
 STEPS_PER_HOUR = 12
 
@@ -48,6 +49,7 @@ class Flats:
     y_mean: np.ndarray; y_scale: np.ndarray
     test_index: pd.DatetimeIndex
     feat_cols: list[str]
+    lb_carry: int = 288        # context rows prepended to val/test flats (train tail)
 
     def y_to_mw(self, y_scaled: np.ndarray) -> np.ndarray:
         return y_scaled * self.y_scale + self.y_mean
@@ -66,6 +68,7 @@ def load_flats() -> Flats:
         y_mean=z["y_mean"], y_scale=z["y_scale"],
         test_index=pd.DatetimeIndex(z["test_index"]),
         feat_cols=[str(c) for c in z["feat_cols"]],
+        lb_carry=int(z["lookback_steps"]) if "lookback_steps" in z.files else 288,
     )
 
 
@@ -130,22 +133,15 @@ def test_gap_windows(f: Flats, context: int = 72,
 
 # --------------------------- train sampling (random-position masks) ---------------------------
 
-def sample_train_windows(f: Flats, n: int, context: int = 72, gap: int = 36,
-                         seed: int = 0, split: str = "train") -> dict:
-    """Sample `n` random imputation windows from a flat split (`train` or `val`):
-    a centred gap with `context` real steps on each side. Returns model-ready
-    tensors:
+def _build_windows(Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
+                   context: int, gap: int) -> dict:
+    """Assemble model-ready window tensors from flat-row start positions:
       X    (n, W, 17)  features, with the 6 source cols ZEROED inside the gap
       mask (n, W, 1)   1 outside the gap, 0 inside (which steps are blanks)
       Y    (n, G, 6)   true sources (y-scaled, TARGETS order) in the gap
       interp (n, G, 6) linear-interp skeleton between the two boundary steps
-    W = 2*context + gap. `val` draws from the held-out val split for early stopping
-    (no test leakage). No timestamps needed -- calendar features carry time-of-day."""
-    Xflat, Yflat = (f.Xtr, f.Ytr) if split == "train" else (f.Xva, f.Yva)
-    rng = np.random.default_rng(seed)
+    W = 2*context + gap; the gap is centred (rows [context, context+gap))."""
     W = 2 * context + gap
-    N = Xflat.shape[0]
-    starts = rng.integers(0, N - W, size=n)
     tfi = np.asarray(TARGET_FEAT_IDX)
     X = np.stack([Xflat[s:s + W] for s in starts]).astype(np.float32)   # (n,W,17)
     # y-scaled truth in the gap, TARGETS order (from the target flat, not X)
@@ -158,11 +154,69 @@ def sample_train_windows(f: Flats, n: int, context: int = 72, gap: int = 36,
     pR = Yflat[starts + ge]                                            # (n,6)
     t = (np.arange(1, gap + 1) / (gap + 1))[None, :, None]             # (1,G,1)
     interp = (pL[:, None, :] + t * (pR - pL)[:, None, :]).astype(np.float32)  # (n,G,6)
-    mask = np.ones((n, W, 1), dtype=np.float32)
+    mask = np.ones((len(starts), W, 1), dtype=np.float32)
     mask[:, gs:ge, :] = 0.0
     X[:, gs:ge, tfi] = 0.0                                              # blank the unknown subspace
     return {"X": X, "mask": mask, "Y": Y, "interp": interp,
             "context": context, "gap": gap, "W": W}
+
+
+def sample_train_windows(f: Flats, n: int, context: int = 48, gap: int = 36,
+                         seed: int = 0, split: str = "train") -> dict:
+    """Sample `n` random-position imputation windows from a flat split (`train` or
+    `val`): a centred gap with `context` real steps on each side. Random positions
+    are right for TRAINING (more variety, calendar features carry time-of-day) --
+    but NOT for early-stopping validation: use sample_val_midday_windows for that,
+    which matches the test task (see its docstring for the leakage history)."""
+    Xflat, Yflat = (f.Xtr, f.Ytr) if split == "train" else (f.Xva, f.Yva)
+    rng = np.random.default_rng(seed)
+    W = 2 * context + gap
+    starts = rng.integers(0, Xflat.shape[0] - W, size=n)
+    return _build_windows(Xflat, Yflat, starts, context, gap)
+
+
+# --------------------------- validation gaps (midday-matched) ---------------------------
+
+def _hour_frac(Xflat: np.ndarray, f: Flats) -> np.ndarray:
+    """Recover fractional hour-of-day from the standardized hour_sin/cos features
+    (the flats carry no timestamps). The prep encoded hour = h + min/60
+    (lib/pipeline.py), so atan2 inverts it exactly at 5-min resolution."""
+    s = Xflat[:, HOUR_SIN_COL] * f.x_scale[HOUR_SIN_COL] + f.x_mean[HOUR_SIN_COL]
+    c = Xflat[:, HOUR_COS_COL] * f.x_scale[HOUR_COS_COL] + f.x_mean[HOUR_COS_COL]
+    return (np.arctan2(s, c) % (2 * np.pi)) / (2 * np.pi) * 24.0
+
+
+def sample_val_midday_windows(f: Flats, context: int = 48, gap: int = 36) -> dict:
+    """Early-stopping validation windows that MATCH the test task: gaps pinned to
+    11:00-14:00 in the held-out val split (~one window per val day).
+
+    Why this exists -- the leakage/mismatch history of train.py:
+      v1  picked the best epoch by TEST recon WAPE            -> test leakage.
+      v2  early-stopped on RANDOM-position val gaps           -> leak fixed, but a
+          difficulty MISMATCH: random gaps average over easy night hours, while the
+          test gaps are all midday (solar trough, battery-heavy) -- val 0.31 looked
+          better than test 0.44 and could still mis-rank epochs.
+      v3  (this) same held-out val split, gaps at the deployment clock position --
+          the val metric now estimates exactly the deployed quantity. Test is
+          scored ONCE, after training, on the val-selected model.
+
+    Same return contract as sample_train_windows. Gap rows are required to lie in
+    genuine val territory (past the lb_carry train-tail rows prepended for context),
+    and the recovered clock must advance 5 min/row across the whole window (skips
+    splices left by dropna in the table build)."""
+    Xflat, Yflat = f.Xva, f.Yva
+    W = 2 * context + gap
+    hf = _hour_frac(Xflat, f)
+    cand = np.where(np.abs(hf - GAP_HOURS[0]) < 1.0 / 24)[0]   # rows whose clock reads 11:00
+    starts = cand - context
+    starts = starts[(starts >= 0) & (starts + W <= len(Xflat))]
+    starts = starts[starts + context >= f.lb_carry]            # gap fully in real val rows
+    ok = np.isclose(np.diff(hf) % 24.0, 1.0 / 12.0, atol=1e-3)  # 5-min steps (mod midnight)
+    run = np.concatenate([[0], np.cumsum(ok)])
+    starts = starts[run[starts + W - 1] - run[starts] == W - 1]
+    if len(starts) == 0:
+        raise RuntimeError("no contiguous 11:00-14:00 windows recoverable from the val flat")
+    return _build_windows(Xflat, Yflat, starts, context, gap)
 
 
 if __name__ == "__main__":
@@ -175,3 +229,10 @@ if __name__ == "__main__":
     print(f"test 11:00-14:00 gap-days built: {len(gws)}  (gap {len(gws[0].gap_idx)} steps each)")
     tr = sample_train_windows(f, 4)
     print("train sample:", {k: v.shape for k, v in tr.items() if hasattr(v, 'shape')})
+    va = sample_val_midday_windows(f)
+    # verify the masked steps really sit at 11:00-13:55: recover the clock from the
+    # window features themselves (the source cols are zeroed, hour_sin/cos are not)
+    gs, ge = va["context"], va["context"] + va["gap"]
+    hrs = np.concatenate([_hour_frac(w[gs:ge], f) for w in va["X"]])
+    print(f"val midday windows: {len(va['X'])}  gap clock span "
+          f"{hrs.min():.3f}-{hrs.max():.3f}h (want 11.000-13.917)")

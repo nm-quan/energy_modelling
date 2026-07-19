@@ -31,15 +31,22 @@ ramps, box, SOC.
    ramp-feasible. Feasible iff `|p_R − p_L| ≤ (N+1)·r` per channel.
 3. **baseline.py** — zero-learning bar: per-source linear interpolation between
    boundaries (± constraint projection). The imputation-track "persistence".
-4. **model.py / train.py** — bi-LSTM over the window + mask channel, ramp-tube
-   head, trained on masked + perturbed windows. *(next)*
+4. **model.py / train.py** — bi-LSTM over the window + mask channel, residual on
+   the interp skeleton, trained on masked windows; early-stopped on **midday-matched
+   val gaps** (11:00–14:00 in the held-out val split — same task as test, no test
+   leakage; see `gap_data.sample_val_midday_windows` for the leakage history).
+   Perturbation is OFF: scaling demand with an unchanged target teaches the model
+   to ignore demand (measured).
 
 ## Pilot results (CPU, 2026-07-15)
 
 ### Reconstruction WAPE — mask real 11–14, fill, score vs measured truth
 
 100-epoch run, **early-stopped on a held-out VAL set** (random gaps from the val
-split — no test leakage; stopped ep28, val best 0.315), test scored once:
+split — no test leakage; stopped ep28, val best 0.315), test scored once.
+*(Since this run the val protocol was tightened once more: val gaps are now pinned
+to 11:00–14:00 — midday-matched to the test task — so val no longer reads
+optimistic vs test. Retrain via the notebook to refresh the numbers below.)*
 
 | channel | interp (baseline) | bi-LSTM (100ep, val-selected) |
 | --- | --- | --- |

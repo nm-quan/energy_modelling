@@ -12,7 +12,6 @@ Input channels: the 17 features (6 source cols zeroed in the gap) + 1 mask flag.
 """
 from __future__ import annotations
 
-import numpy as np
 import torch
 import torch.nn as nn
 
