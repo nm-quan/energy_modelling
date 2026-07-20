@@ -23,20 +23,33 @@ ramps, box, SOC.
 ## Pipeline (per constraints/lit_review.md theme 9)
 
 1. **gap_data.py** — build windows `[ctxL | gap | ctxR]` from the 4.8-yr hist flats
-   (`prepared.npz`, no parquets). Test = real 11–14 windows (186 days); train =
-   random-position masks over 394k rows (calendar carries time-of-day).
-2. **constraints.py** — the two-sided **ramp tube**: forward cone from p_L +
-   backward cone from p_R, box, then balance, enforced by forward/backward POCS.
-   Guarantees every consecutive pair incl. **both seams** (the 2:05 fix) is
-   ramp-feasible. Feasible iff `|p_R − p_L| ≤ (N+1)·r` per channel.
+   (`prepared.npz`, no parquets). **Eval is GENERAL** — `sample_recon_windows` places
+   gaps at *all* hours (test + val), with a **midday(11–14) slice** kept for the
+   deployment number; `test_gap_windows` still yields the 186 midday days for the
+   counterfactual. Builders **fail loud** (<30 windows) so a stale npz can't silently
+   shrink the eval. Train = random-position masks over 394k rows.
+2. **constraints.py** — one differentiable **cyclic projection** over
+   **{balance} ∩ {ramp tube} ∩ {box} ∩ {SOC}**. Cycling the four convex projections
+   converges to their intersection, so **balance is EXACT** (machine precision) *and*
+   two-sided ramp (both seams — the 2:05 fix), box, and SOC all hold. Built
+   functionally (no in-place) so it is differentiable. `feasibility_certificate`
+   proves a feasible dispatch exists for the base and +10% net_demand on all 186 days.
 3. **baseline.py** — zero-learning bar: per-source linear interpolation between
-   boundaries (± constraint projection). The imputation-track "persistence".
-4. **model.py / train.py** — bi-LSTM over the window + mask channel, residual on
-   the interp skeleton, trained on masked windows; early-stopped on **midday-matched
-   val gaps** (11:00–14:00 in the held-out val split — same task as test, no test
-   leakage; see `gap_data.sample_val_midday_windows` for the leakage history).
-   Perturbation is OFF: scaling demand with an unchanged target teaches the model
-   to ignore demand (measured).
+   boundaries (± projection). The imputation-track "persistence".
+4. **model.py / train.py / constraint_layers.py** — bi-LSTM over the window + mask
+   channel. `--constraint-mode` builds all three enforcement styles:
+   **posthoc** (project at eval), **unrolled** (project in-graph via the cyclic POCS),
+   **rayen_traj** (differentiable RAYEN ray-shoot over the whole gap). Early-stopped on
+   GENERAL held-out val (leak-free, matched to test). `--loss {mse,mae,wape}` aligns
+   the reconstruction term to the reported metric; `--perturb` OFF (measured harmful).
+5. **benchmark.py** — scores every mode on one identical general eval vs
+   interp+projection → `results/benchmark.md`.
+
+> **v2 status (this branch):** exact-balance + SOC projection, general eval, robust
+> val, and the three constraint modes are implemented and smoke-tested; the
+> per-mode WAPE numbers below the general bar (interp+projection ≈ **macro 0.53 /
+> micro 0.066** on the general eval) are produced when you train each mode on GPU
+> (`colab/imputation_gapfill.ipynb`). The older midday-only pilot numbers follow.
 
 ## Pilot results (CPU, 2026-07-15)
 

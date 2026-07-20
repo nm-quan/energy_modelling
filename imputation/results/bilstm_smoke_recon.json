@@ -21,6 +21,8 @@
   "balance_resid_max_mw": 7.031956738501322e-05,
   "n_eval_windows": 200,
   "method": "bilstm",
+  "constraint_mode": "posthoc",
+  "loss": "mse",
   "epochs": 2,
   "n_train": 2000,
   "perturb": 0.0,

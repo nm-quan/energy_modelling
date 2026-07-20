@@ -138,6 +138,10 @@ def main():
     ap.add_argument("--proj-iters", type=int, default=10,
                     help="unrolled-mode: POCS rounds inside the forward pass (small = cheaper "
                          "gradients; eval always uses the full 40-round projection)")
+    ap.add_argument("--loss", choices=["mse", "mae", "wape"], default="mse",
+                    help="reconstruction loss. mse (default, but z-scored so it under-weights "
+                         "the volatile battery channel); mae; wape (MW per-channel Σ|err|/Σ|truth|, "
+                         "matches the reported metric so batteries aren't down-weighted).")
     ap.add_argument("--lam-bal", type=float, default=0.1)
     ap.add_argument("--lam-dev", type=float, default=0.0,
                     help="L2 penalty on the deviation from interp (keeps smooth channels "
@@ -233,7 +237,7 @@ def main():
                                         mode=args.constraint_mode, iters=args.proj_iters)
                 out = (P_mw - ys_mean) / ys_scale
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
-                                         ys_mean, ys_scale, sign, args.lam_bal)
+                                         ys_mean, ys_scale, sign, args.lam_bal, loss=args.loss)
             loss = loss + args.lam_dev * (dev ** 2).mean()    # keep dev small: stay near interp
             opt.zero_grad(); loss.backward(); opt.step()
             tot += float(loss.detach()) * len(j)
@@ -255,8 +259,8 @@ def main():
     ev = evaluate(model, f, gws, device, args.context)
     OUT.mkdir(exist_ok=True)
     torch.save(model.state_dict(), args.out)
-    ev.update(method="bilstm", constraint_mode=args.constraint_mode, epochs=args.epochs,
-              n_train=args.n_train, perturb=args.perturb, context=args.context)
+    ev.update(method="bilstm", constraint_mode=args.constraint_mode, loss=args.loss,
+              epochs=args.epochs, n_train=args.n_train, perturb=args.perturb, context=args.context)
     # results json follows the checkpoint name, so --smoke (-> bilstm_smoke.pt)
     # writes bilstm_smoke_recon.json and never clobbers the real bilstm_recon.json
     recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \
