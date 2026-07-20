@@ -158,8 +158,13 @@ def main():
     if args.smoke:
         args.epochs, args.n_train, args.batch = 2, 2000, 64
         args.n_eval, args.n_val = 200, 500
-        if args.out == str(OUT / "bilstm_imputer.pt"):   # never clobber the real ckpt
-            args.out = str(OUT / "bilstm_smoke.pt")
+        # never let a smoke run clobber ANY real checkpoint/json: whatever --out was
+        # given, write to its _smoke sibling (bilstm_posthoc.pt -> bilstm_posthoc_smoke.pt),
+        # so benchmark.py can never mistake a 2-epoch smoke for a trained mode.
+        p = Path(args.out)
+        if not p.stem.endswith("_smoke"):
+            args.out = str(p.with_name(("bilstm_smoke" if p.stem == "bilstm_imputer"
+                                        else p.stem + "_smoke") + p.suffix))
     device = args.device or ("cuda" if torch.cuda.is_available() else
                              ("mps" if torch.backends.mps.is_available() else "cpu"))
     torch.manual_seed(args.seed); np.random.seed(args.seed)
