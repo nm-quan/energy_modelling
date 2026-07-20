@@ -41,7 +41,7 @@ def wape_per_channel(pred, truth):
     return np.where(den > 1e-6, num / den, np.nan)
 
 
-def evaluate(context: int = 72):
+def evaluate(context: int = 48):     # 48 = the pipeline-wide window setting
     f = load_flats()
     gws = test_gap_windows(f, context=context)
     N = len(gws[0].gap_idx)
