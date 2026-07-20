@@ -123,6 +123,8 @@ def main():
                          "(warning: that is the Jan-1 holiday trough, ~145 MW rise).")
     ap.add_argument("--start", type=int, default=0, help="skip this many candidate runs")
     ap.add_argument("--ckpt", default=str(HERE / "results" / "bilstm_imputer.pt"))
+    ap.add_argument("--mode", choices=["posthoc", "unrolled", "rayen_traj"], default="posthoc",
+                    help="the constraint mode the checkpoint was TRAINED with")
     args = ap.parse_args()
 
     f = load_flats()
@@ -142,8 +144,8 @@ def main():
     base_fill = disp.copy(); scen_fill = disp.copy(); nd_scen = nd.copy(); demand_scen = demand.copy()
     gaps = []
     for gw in run:
-        Pb, _, _ = impute_project(model, f, gw, args.context, "cpu", 0.0)
-        Ps, _, nds = impute_project(model, f, gw, args.context, "cpu", args.g)
+        Pb, _, _ = impute_project(model, f, gw, args.context, "cpu", 0.0, mode=args.mode)
+        Ps, _, nds = impute_project(model, f, gw, args.context, "cpu", args.g, mode=args.mode)
         gpos = np.searchsorted(span_rows, gw.gap_idx)     # gap positions within the span
         base_fill[gpos] = Pb; scen_fill[gpos] = Ps; nd_scen[gpos] = nds
         demand_scen[gpos] = demand[gpos] * (1 + args.g / 100.0)   # total demand raised in the gap

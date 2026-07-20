@@ -36,7 +36,7 @@ from gap_data import (load_flats, sample_train_windows, sample_recon_windows,   
                       TARGETS, SIGN, TARGET_FEAT_IDX, ND_COL, DEM_COL)
 import constraints as C                                                        # noqa: E402
 from model import BiLSTMImputer, masked_loss                                   # noqa: E402
-from constraint_layers import project_in_graph                                 # noqa: E402
+from constraint_layers import project_in_graph, deployed_fill                  # noqa: E402
 
 OUT = HERE / "results"
 
@@ -63,9 +63,12 @@ HOUR_BUCKETS = [("night(0-6)", 0, 6), ("morning(6-11)", 6, 11), ("midday(11-14)"
                 ("afternoon(14-18)", 14, 18), ("evening(18-24)", 18, 24)]
 
 
-def evaluate(model, f, gws, device, context):
-    """Reconstruction WAPE (projected) on GENERAL test gaps (all hours) + a per-hour
-    breakdown incl. the midday(11-14) deployment slice + violation magnitudes."""
+def evaluate(model, f, gws, device, context, mode="posthoc"):
+    """Reconstruction WAPE on GENERAL test gaps (all hours) + a per-hour breakdown
+    incl. the midday(11-14) deployment slice + violation magnitudes. Scores
+    Π(F(x)): the mode's own deployed forward (rayen shot for rayen_traj, identity
+    otherwise -- see constraint_layers docstring) followed by the shared exact
+    projection Π, so every mode is evaluated through the map it was trained with."""
     tfi = np.asarray(TARGET_FEAT_IDX)
     num = np.zeros(6); den = np.zeros(6)
     bnum = {b[0]: np.zeros(6) for b in HOUR_BUCKETS}
@@ -86,7 +89,8 @@ def evaluate(model, f, gws, device, context):
             pL_s, pR_s = f.Yte[g0 - 1], f.Yte[gw.gap_idx[-1] + 1]
             interp = pL_s[None, :] + tt * (pR_s - pL_s)[None, :]
             fill = (interp + dev) * f.y_scale + f.y_mean
-            P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)
+            fill = deployed_fill(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw, mode)   # F(x)
+            P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)     # Π(F(x))
             e = np.abs(P - gw.truth_mw).sum(0); t = np.abs(gw.truth_mw).sum(0)
             num += e; den += t
             for name, lo, hi in HOUR_BUCKETS:
@@ -187,7 +191,6 @@ def main():
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
 
     gs, ge = args.context, args.context + 36
-    y_mw = (f.y_scale, f.y_mean)
 
     # Train set sampled ONCE (reused each epoch -- standard, avoids the per-epoch
     # resample). Early stopping runs on GENERAL (all-hours) windows from the held-out
@@ -202,15 +205,30 @@ def main():
     print(f"val: {len(va['X'])} GENERAL held-out val windows for early stopping")
 
     def val_recon_wape():
+        """Deployment-matched val: score Π(F(x)) exactly like the final test eval --
+        F = the mode's forward (rayen shot for rayen_traj, identity otherwise), Π =
+        the shared cyclic projection. Ranking epochs on the same map that deployment
+        uses is what makes early stopping trustworthy for the in-graph modes (their
+        raw fill is trained to rely on being projected; scoring it raw could pick
+        the wrong epoch). Batched float32, fewer Π iters than test -- consistency of
+        the operator across epochs is what matters for ranking, not the last 1e-6."""
         model.eval()
         with torch.no_grad():
             num = np.zeros(6); den = np.zeros(6)
             for i in range(0, len(va["X"]), 512):
-                dev = model(torch.from_numpy(va["X"][i:i + 512]).to(device),
-                            torch.from_numpy(va["mask"][i:i + 512]).to(device))[:, gs:ge].cpu().numpy()
-                fill = (va["interp"][i:i + 512] + dev) * y_mw[0] + y_mw[1]
-                truth = va["Y"][i:i + 512] * y_mw[0] + y_mw[1]
-                num += np.abs(fill - truth).sum((0, 1)); den += np.abs(truth).sum((0, 1))
+                sl = slice(i, i + 512)
+                dev = model(torch.from_numpy(va["X"][sl]).to(device),
+                            torch.from_numpy(va["mask"][sl]).to(device))[:, gs:ge]
+                fill = (torch.from_numpy(va["interp"][sl]).to(device) + dev) * ys_scale + ys_mean
+                pLb = torch.from_numpy(va["pL_mw"][sl]).to(device)
+                pRb = torch.from_numpy(va["pR_mw"][sl]).to(device)
+                ndb = torch.from_numpy(va["nd_mw"][sl]).to(device)
+                if args.constraint_mode == "rayen_traj":                 # F(x)
+                    fill = project_in_graph(fill, pLb, pRb, ndb, mode="rayen_traj")
+                P = C.cyclic_project(fill, pLb, pRb, ndb, iters=15)      # Π(F(x))
+                truth = torch.from_numpy(va["Y"][sl]).to(device) * ys_scale + ys_mean
+                num += (P - truth).abs().sum((0, 1)).cpu().numpy()
+                den += truth.abs().sum((0, 1)).cpu().numpy()
         return float(np.mean(num / np.clip(den, 1e-6, None)))
 
     best = float("inf"); best_state = None; waited = 0
@@ -256,11 +274,12 @@ def main():
 
     if best_state:
         model.load_state_dict(best_state)
-    ev = evaluate(model, f, gws, device, args.context)
+    ev = evaluate(model, f, gws, device, args.context, mode=args.constraint_mode)
     OUT.mkdir(exist_ok=True)
     torch.save(model.state_dict(), args.out)
     ev.update(method="bilstm", constraint_mode=args.constraint_mode, loss=args.loss,
-              epochs=args.epochs, n_train=args.n_train, perturb=args.perturb, context=args.context)
+              epochs=args.epochs, n_train=args.n_train, perturb=args.perturb,
+              context=args.context, n_eval=args.n_eval, eval_seed=123)
     # results json follows the checkpoint name, so --smoke (-> bilstm_smoke.pt)
     # writes bilstm_smoke_recon.json and never clobbers the real bilstm_recon.json
     recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \

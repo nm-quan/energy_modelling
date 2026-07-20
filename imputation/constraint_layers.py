@@ -1,8 +1,19 @@
 """In-graph (differentiable) constraint enforcement for the training loop, selected by
 --constraint-mode. All operate on MW tensors and are differentiable, so the model
 trains INSIDE the constraints (contrast posthoc, which trains on a soft-balance loss
-and projects only at eval). Every mode is SCORED by the same posthoc eval projection
-(constraints.project_gap), so the benchmark is apples-to-apples.
+and projects only at eval).
+
+THE CONSISTENT SCORING RULE (train == val == test == inference):
+every mode is scored as  Π(F(x))  where
+  F(x) = the mode's DEPLOYED FORWARD: the raw fill for posthoc/unrolled, the RAYEN
+         ray-shot for rayen_traj (`deployed_fill` below). For unrolled, F needs no
+         extra step at scoring time because Π IS the converged version of its
+         in-graph operator (same fixed points) -- applying Π directly is consistent.
+  Π    = the shared exact posthoc projection (constraints.project_gap / cyclic_project)
+         which guarantees balance/ramp/box/SOC identically for every mode.
+So the benchmark stays apples-to-apples (same Π last), while each model is evaluated
+through the same map it was trained through -- epoch selection and final numbers
+cannot mis-rank a mode by scoring it through an operator it never saw in training.
 
   unrolled    K rounds of the validated cyclic projection (constraints.cyclic_project):
               balance -> ramp -> box -> SOC, unrolled as differentiable ops. Reuses the
@@ -12,6 +23,7 @@ and projects only at eval). Every mode is SCORED by the same posthoc eval projec
 """
 from __future__ import annotations
 
+import numpy as np
 import torch
 
 import constraints as C
@@ -25,6 +37,24 @@ def project_in_graph(fill_mw, pL_mw, pR_mw, nd_mw, mode="unrolled", iters=10):
     if mode == "rayen_traj":
         return rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw)
     raise ValueError(f"no in-graph projection for constraint-mode={mode!r}")
+
+
+def deployed_fill(fill_mw: np.ndarray, pL: np.ndarray, pR: np.ndarray,
+                  nd: np.ndarray, mode: str) -> np.ndarray:
+    """Numpy single-window F(x): the transformation the mode's forward pass applies
+    before the shared posthoc projection Π. Identity for posthoc AND unrolled (Π is
+    the converged in-graph operator, so Π alone reproduces unrolled's train-time
+    map); the ray-shot for rayen_traj. Use at every inference site (final eval,
+    scenario_eval, stack_gap) so a checkpoint is scored as it was trained."""
+    if mode != "rayen_traj":
+        return fill_mw
+    with torch.no_grad():
+        out = rayen_traj_project(
+            torch.tensor(np.asarray(fill_mw)[None], dtype=torch.float64),
+            torch.tensor(np.asarray(pL)[None], dtype=torch.float64),
+            torch.tensor(np.asarray(pR)[None], dtype=torch.float64),
+            torch.tensor(np.asarray(nd)[None], dtype=torch.float64))
+    return out[0].numpy()
 
 
 def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40):

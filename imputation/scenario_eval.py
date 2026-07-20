@@ -30,6 +30,7 @@ sys.path.insert(0, str(HERE))
 from gap_data import (load_flats, test_gap_windows, TARGETS, SIGN,             # noqa: E402
                       TARGET_FEAT_IDX, ND_COL, DEM_COL)
 import constraints as C                                                       # noqa: E402
+from constraint_layers import deployed_fill                                   # noqa: E402
 from model import BiLSTMImputer                                               # noqa: E402
 
 OUT = HERE / "results"
@@ -38,8 +39,10 @@ ETA = np.sqrt(0.834)
 DT = 5 / 60
 
 
-def impute_project(model, f, gw, context, device, g_pct):
-    """Return projected fill (N,6) MW for a +g_pct demand scenario (g=0 => base)."""
+def impute_project(model, f, gw, context, device, g_pct, mode="posthoc"):
+    """Return projected fill (N,6) MW for a +g_pct demand scenario (g=0 => base).
+    Scores Π(F(x)): `mode` must match how the checkpoint was TRAINED (rayen_traj
+    applies its ray-shot before the shared projection; posthoc/unrolled need only Π)."""
     tfi = np.asarray(TARGET_FEAT_IDX)
     N = len(gw.gap_idx); g0 = gw.gap_idx[0]
     xs = f.Xte[g0 - context: g0 + N + context].copy()
@@ -65,7 +68,8 @@ def impute_project(model, f, gw, context, device, g_pct):
     tt = (np.arange(1, N + 1) / (N + 1))[:, None]            # residual: interp + deviation
     pL_s, pR_s = f.Yte[g0 - 1], f.Yte[gw.gap_idx[-1] + 1]
     fill = ((pL_s[None, :] + tt * (pR_s - pL_s)[None, :]) + dev) * f.y_scale + f.y_mean
-    P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, nd_mw)
+    fill = deployed_fill(fill, gw.pL_mw, gw.pR_mw, nd_mw, mode)   # F(x)
+    P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, nd_mw)     # Π(F(x))
     return P, resid, nd_mw
 
 
@@ -74,6 +78,9 @@ def main():
     ap.add_argument("--g", type=float, default=10.0)
     ap.add_argument("--context", type=int, default=48)   # match the trained checkpoint
     ap.add_argument("--ckpt", default=str(OUT / "bilstm_imputer.pt"))
+    ap.add_argument("--mode", choices=["posthoc", "unrolled", "rayen_traj"], default="posthoc",
+                    help="the constraint mode the checkpoint was TRAINED with (rayen_traj "
+                         "applies its ray-shot before the shared projection)")
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -88,8 +95,8 @@ def main():
         resp = np.zeros(6); base_sum = np.zeros(6)
         track = []; ramp_bad = neg = 0; bal_max = 0.0; soc_bad = 0
         for gw in gws:
-            Pb, _, ndb = impute_project(model, f, gw, args.context, device, 0.0)
-            Ps, resid, nds = impute_project(model, f, gw, args.context, device, g)
+            Pb, _, ndb = impute_project(model, f, gw, args.context, device, 0.0, mode=args.mode)
+            Ps, resid, nds = impute_project(model, f, gw, args.context, device, g, mode=args.mode)
             cap_num += (Ps @ SIGN).sum() - (Pb @ SIGN).sum()
             cap_den += (nds - ndb).sum()
             resp += Ps.sum(0); base_sum += Pb.sum(0)

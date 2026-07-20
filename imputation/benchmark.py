@@ -53,17 +53,27 @@ def score_fill(gws, fill_fn):
             "ramp_overshoot_mw": ramp_over, "balance_resid_max_mw": bal, "n_neg": neg}
 
 
+EVAL_SETTINGS = {"context": 48, "n_eval": 800, "eval_seed": 123}   # the interp row's windows
+
+
 def row_from_model_json(d):
-    """Pull the benchmark columns out of a train.py recon json."""
-    return {"macro_WAPE": d.get("macro_WAPE"), "micro_WAPE": d.get("micro_WAPE"),
-            "midday_micro_WAPE": d.get("per_hour_WAPE", {}).get("midday(11-14)"),
-            "ramp_overshoot_mw": d.get("ramp_overshoot_mw"),
-            "balance_resid_max_mw": d.get("balance_resid_max_mw"), "n_neg": d.get("n_neg")}
+    """Pull the benchmark columns out of a train.py recon json. Rows are only
+    strictly comparable to the interp row if the run used the SAME eval windows
+    (context/n_eval/eval_seed determine them); mismatches are flagged, not hidden."""
+    row = {"macro_WAPE": d.get("macro_WAPE"), "micro_WAPE": d.get("micro_WAPE"),
+           "midday_micro_WAPE": d.get("per_hour_WAPE", {}).get("midday(11-14)"),
+           "ramp_overshoot_mw": d.get("ramp_overshoot_mw"),
+           "balance_resid_max_mw": d.get("balance_resid_max_mw"), "n_neg": d.get("n_neg")}
+    off = [k for k, v in EVAL_SETTINGS.items() if d.get(k) is not None and d.get(k) != v]
+    row["_flag"] = ("" if not off else
+                    " ⚠ different eval windows (" + ", ".join(f"{k}={d.get(k)}" for k in off) + ")")
+    return row
 
 
 def main():
     f = load_flats()
-    gws = sample_recon_windows(f, "test", n=800, context=48, seed=123)   # matches train.py eval
+    gws = sample_recon_windows(f, "test", n=EVAL_SETTINGS["n_eval"],    # same windows as train.py
+                               context=EVAL_SETTINGS["context"], seed=EVAL_SETTINGS["eval_seed"])
     rows = [("interp+projection", score_fill(gws, interp_fill))]
     for mode in MODES:
         p = OUT / f"bilstm_{mode}_recon.json"
@@ -88,7 +98,7 @@ def main():
         for c, fmt in cols:
             v = r.get(c)
             cells.append("—" if v is None else fmt.format(v))
-        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+        lines.append(f"| {name}{r.get('_flag', '')} | " + " | ".join(cells) + " |")
     table = "\n".join(lines)
     OUT.mkdir(exist_ok=True)
     (OUT / "benchmark.md").write_text(table + "\n")
