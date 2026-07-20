@@ -161,7 +161,11 @@ def _build_windows(f: Flats, Xflat: np.ndarray, Yflat: np.ndarray, starts: np.nd
     mask = np.ones((len(starts), W, 1), dtype=np.float32)
     mask[:, gs:ge, :] = 0.0
     X[:, gs:ge, tfi] = 0.0                                              # blank the unknown subspace
-    nd_mw = np.stack([f.col_mw(Xflat, ND_COL)[s + gs:s + ge] for s in starts]).astype(np.float32)
+    # de-standardize the net_demand column ONCE (calling col_mw inside the loop
+    # re-converted all 394k rows PER WINDOW -- minutes of apparent hang at n=40000,
+    # which got the Colab training runs killed before epoch 1)
+    nd_col = f.col_mw(Xflat, ND_COL).astype(np.float32)
+    nd_mw = np.stack([nd_col[s + gs:s + ge] for s in starts])
     return {"X": X, "mask": mask, "Y": Y, "interp": interp,
             "pL_mw": f.y_to_mw(pL).astype(np.float32),                 # (n,6)
             "pR_mw": f.y_to_mw(pR).astype(np.float32),                 # (n,6)
@@ -249,6 +253,7 @@ def sample_recon_windows(f: Flats, split: str = "test", n: int = 400, context: i
     rng = np.random.default_rng(seed)
     W = 2 * context + gap
     hf = _hour_frac(Xflat, f)
+    nd_col = f.col_mw(Xflat, ND_COL)                              # de-standardize once
     ok = np.isclose(np.diff(hf) % 24.0, 1.0 / 12.0, atol=1e-3)     # contiguous 5-min steps
     run = np.concatenate([[0], np.cumsum(ok)])
     idx = f.test_index if split == "test" else None
@@ -273,7 +278,7 @@ def sample_recon_windows(f: Flats, split: str = "test", n: int = 400, context: i
             day=day, gap_idx=gidx,
             ctxL_idx=np.arange(s, g0), ctxR_idx=np.arange(g0 + gap, s + W),
             pL_mw=f.y_to_mw(Yflat[g0 - 1]), pR_mw=f.y_to_mw(Yflat[g0 + gap]),
-            truth_mw=f.y_to_mw(Yflat[gidx]), nd_mw=f.col_mw(Xflat, ND_COL)[gidx],
+            truth_mw=f.y_to_mw(Yflat[gidx]), nd_mw=nd_col[gidx],
             hour=float(hf[g0]),
         ))
     if len(out) < min_windows:

@@ -203,11 +203,15 @@ def main():
     # estimates the deployed quantity and can't mis-rank epochs. History: v1 selected
     # epochs on TEST = leakage; v2 random val vs midday test = a difficulty mismatch;
     # v3 both general = matched. Test is scored ONCE, after training.
+    print(f"sampling {args.n_train} train + {args.n_val} val windows "
+          "(~10-30s, one-off)...", flush=True)
+    t0 = time.time()
     tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed, split="train")
     if args.perturb > 0:
         tr["X"] = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng)
     va = sample_train_windows(f, args.n_val, context=args.context, seed=args.seed + 777, split="val")
-    print(f"val: {len(va['X'])} GENERAL held-out val windows for early stopping")
+    print(f"val: {len(va['X'])} GENERAL held-out val windows for early stopping "
+          f"(sampling took {time.time() - t0:.0f}s)", flush=True)
 
     def val_recon_wape():
         """Deployment-matched val: score Π(F(x)) exactly like the final test eval --
