@@ -26,5 +26,7 @@
   "epochs": 2,
   "n_train": 2000,
   "perturb": 0.0,
-  "context": 48
+  "context": 48,
+  "n_eval": 200,
+  "eval_seed": 123
 }
