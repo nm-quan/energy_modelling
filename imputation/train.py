@@ -32,8 +32,7 @@ import torch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from gap_data import (load_flats, test_gap_windows, sample_train_windows,      # noqa: E402
-                      sample_val_midday_windows,
+from gap_data import (load_flats, sample_train_windows, sample_recon_windows,   # noqa: E402
                       TARGETS, SIGN, TARGET_FEAT_IDX, ND_COL, DEM_COL)
 import constraints as C                                                        # noqa: E402
 from model import BiLSTMImputer, masked_loss                                   # noqa: E402
@@ -58,16 +57,23 @@ def perturb_demand(X, mask, f, frac: float, rng, max_g: float = 30.0):
     return X
 
 
+# hour-of-day buckets for the general eval; "midday(11-14)" is the deployment slice
+HOUR_BUCKETS = [("night(0-6)", 0, 6), ("morning(6-11)", 6, 11), ("midday(11-14)", 11, 14),
+                ("afternoon(14-18)", 14, 18), ("evening(18-24)", 18, 24)]
+
+
 def evaluate(model, f, gws, device, context):
-    """Reconstruction WAPE (projected) on the real test gaps + violation counts."""
-    N = len(gws[0].gap_idx)
+    """Reconstruction WAPE (projected) on GENERAL test gaps (all hours) + a per-hour
+    breakdown incl. the midday(11-14) deployment slice + violation magnitudes."""
     tfi = np.asarray(TARGET_FEAT_IDX)
     num = np.zeros(6); den = np.zeros(6)
-    ramp_bad = neg = 0; bal_max = 0.0
+    bnum = {b[0]: np.zeros(6) for b in HOUR_BUCKETS}
+    bden = {b[0]: np.zeros(6) for b in HOUR_BUCKETS}
+    ramp_over = 0.0; neg = 0; bal_max = 0.0
     model.eval()
     with torch.no_grad():
         for gw in gws:
-            g0 = gw.gap_idx[0]
+            g0 = gw.gap_idx[0]; N = len(gw.gap_idx)
             xs = f.Xte[g0 - context: g0 + N + context].copy()   # (W,17)
             m = np.ones((xs.shape[0], 1), np.float32); m[context:context + N] = 0.0
             xs[context:context + N][:, tfi] = 0.0
@@ -80,14 +86,26 @@ def evaluate(model, f, gws, device, context):
             interp = pL_s[None, :] + tt * (pR_s - pL_s)[None, :]
             fill = (interp + dev) * f.y_scale + f.y_mean
             P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)
-            num += np.abs(P - gw.truth_mw).sum(0); den += np.abs(gw.truth_mw).sum(0)
-            d = np.diff(np.vstack([gw.pL_mw, P, gw.pR_mw]), axis=0)
-            ramp_bad += int(((d > C.R_UP + 0.6) | (d < -(C.R_DN + 0.6))).sum())
+            e = np.abs(P - gw.truth_mw).sum(0); t = np.abs(gw.truth_mw).sum(0)
+            num += e; den += t
+            for name, lo, hi in HOUR_BUCKETS:
+                if lo <= gw.hour < hi:
+                    bnum[name] += e; bden[name] += t
+            ramp_over = max(ramp_over, C._ramp_overshoot_mw(np.vstack([gw.pL_mw, P, gw.pR_mw])))
             neg += int((P < -0.1).sum()); bal_max = max(bal_max, float(resid.max()))
     per = num / np.clip(den, 1e-6, None)
-    return {"macro_WAPE": float(per.mean()),
+    # per-hour uses MICRO WAPE (Σ|err| / Σ|truth| across ALL channels) not the
+    # per-channel macro: in some hour bands a small channel (gas_steam) is ~entirely
+    # off, so its per-channel denominator ~0 and macro-WAPE explodes. Total dispatch
+    # is always large, so micro is stable and still says "how close is this hour band".
+    per_hour = {name: float(bnum[name].sum() / max(bden[name].sum(), 1e-6))
+                for name, _, _ in HOUR_BUCKETS if bden[name].sum() > 1e-6}
+    return {"macro_WAPE": float(per.mean()),          # mean of per-channel WAPE (repo convention)
+            "micro_WAPE": float(num.sum() / max(den.sum(), 1e-6)),   # Σerr/Σtruth, stable headline
             "per_channel_WAPE": {t: float(per[i]) for i, t in enumerate(TARGETS)},
-            "ramp_violations": ramp_bad, "n_neg": neg, "balance_resid_max_mw": bal_max}
+            "per_hour_WAPE": per_hour,
+            "ramp_overshoot_mw": ramp_over, "n_neg": neg, "balance_resid_max_mw": bal_max,
+            "n_eval_windows": len(gws)}
 
 
 def main():
@@ -96,6 +114,10 @@ def main():
     ap.add_argument("--patience", type=int, default=10,
                     help="early stop after this many epochs with no val-recon improvement")
     ap.add_argument("--n-train", type=int, default=40000)
+    ap.add_argument("--n-eval", type=int, default=800,
+                    help="general (all-hours) test windows for the final reconstruction eval")
+    ap.add_argument("--n-val", type=int, default=4000,
+                    help="general (all-hours) val windows for early stopping")
     ap.add_argument("--context", type=int, default=48)
     ap.add_argument("--hidden", type=int, default=128)
     ap.add_argument("--batch", type=int, default=128)
@@ -116,6 +138,7 @@ def main():
     args = ap.parse_args()
     if args.smoke:
         args.epochs, args.n_train, args.batch = 2, 2000, 64
+        args.n_eval, args.n_val = 200, 500
         if args.out == str(OUT / "bilstm_imputer.pt"):   # never clobber the real ckpt
             args.out = str(OUT / "bilstm_smoke.pt")
     device = args.device or ("cuda" if torch.cuda.is_available() else
@@ -124,8 +147,20 @@ def main():
     print(f"device={device} epochs={args.epochs} n_train={args.n_train} perturb={args.perturb}")
 
     f = load_flats()
-    gws = test_gap_windows(f, context=args.context)
-    print(f"test gap-days: {len(gws)}")
+    # startup guard: surface the flat shapes so a stale/rebuilt prepared.npz is
+    # obvious on line 1 (the Colab run that silently gave 3 val windows had a
+    # different val flat). sample_recon_windows below also fails loud if <30.
+    print(f"flats: Xtr={f.Xtr.shape} Xva={f.Xva.shape} Xte={f.Xte.shape} lb_carry={f.lb_carry}")
+    if f.Xva.shape[0] < 5000:
+        print(f"  WARNING: Xva_flat has only {f.Xva.shape[0]} rows (committed data ~53,280) "
+              f"-- val may be unrepresentative; check prepared.npz.")
+    # GENERAL test windows (all hours) for the final reconstruction eval + per-hour
+    # breakdown incl. the midday(11-14) deployment slice (user concern #1: eval must
+    # be general, not midday-only). Fixed seed -> reproducible test set.
+    gws = sample_recon_windows(f, "test", n=args.n_eval, context=args.context, seed=123)
+    hh = np.array([w.hour for w in gws])
+    print(f"eval: {len(gws)} GENERAL test windows, gap-open hours {hh.min():.1f}-{hh.max():.1f} "
+          f"({int(((hh >= 11) & (hh < 14)).sum())} in the midday slice)")
     rng = np.random.default_rng(args.seed)
     ys_mean = torch.tensor(f.y_mean, dtype=torch.float32, device=device)
     ys_scale = torch.tensor(f.y_scale, dtype=torch.float32, device=device)
@@ -138,17 +173,17 @@ def main():
     gs, ge = args.context, args.context + 36
     y_mw = (f.y_scale, f.y_mean)
 
-    # Train set sampled ONCE (reused each epoch -- standard, and avoids the per-epoch
-    # 3.7 GB resample). Early stopping runs on MIDDAY-MATCHED windows from the held-out
-    # val split: same 11:00-14:00 task as test, so val estimates the deployed quantity.
-    # (History: v1 selected epochs on TEST = leakage; v2 on random-position val gaps =
-    # no leak but easier than midday, val 0.31 vs test 0.44 -- see
-    # gap_data.sample_val_midday_windows.) Test is scored ONCE, after training.
+    # Train set sampled ONCE (reused each epoch -- standard, avoids the per-epoch
+    # resample). Early stopping runs on GENERAL (all-hours) windows from the held-out
+    # VAL split -- now MATCHED to the general test task (both all-hours), so val
+    # estimates the deployed quantity and can't mis-rank epochs. History: v1 selected
+    # epochs on TEST = leakage; v2 random val vs midday test = a difficulty mismatch;
+    # v3 both general = matched. Test is scored ONCE, after training.
     tr = sample_train_windows(f, args.n_train, context=args.context, seed=args.seed, split="train")
     if args.perturb > 0:
         tr["X"] = perturb_demand(tr["X"], tr["mask"], f, args.perturb, rng)
-    va = sample_val_midday_windows(f, context=args.context)
-    print(f"val: {len(va['X'])} midday-matched 11:00-14:00 windows (held-out val split)")
+    va = sample_train_windows(f, args.n_val, context=args.context, seed=args.seed + 777, split="val")
+    print(f"val: {len(va['X'])} GENERAL held-out val windows for early stopping")
 
     def val_recon_wape():
         model.eval()
@@ -205,10 +240,12 @@ def main():
     recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \
         else Path(args.out).stem + "_recon.json"
     (OUT / recon_name).write_text(json.dumps(ev, indent=2))
-    print(f"\nBEST recon WAPE={ev['macro_WAPE']:.4f}  ramp={ev['ramp_violations']} "
-          f"neg={ev['n_neg']} bal_max={ev['balance_resid_max_mw']:.1f} MW")
+    print(f"\nBEST general recon: macro_WAPE={ev['macro_WAPE']:.4f}  micro_WAPE={ev['micro_WAPE']:.4f}  "
+          f"ramp_overshoot={ev['ramp_overshoot_mw']:.2e} MW  neg={ev['n_neg']}  "
+          f"bal_max={ev['balance_resid_max_mw']:.2e} MW  (n={ev['n_eval_windows']})")
     for t in TARGETS:
         print(f"    {t:20s} {ev['per_channel_WAPE'][t]:.4f}")
+    print("  per-hour WAPE:", {k: round(v, 3) for k, v in ev["per_hour_WAPE"].items()})
     print("wrote", args.out)
 
 
