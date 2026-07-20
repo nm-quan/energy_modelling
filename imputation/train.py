@@ -36,6 +36,7 @@ from gap_data import (load_flats, sample_train_windows, sample_recon_windows,   
                       TARGETS, SIGN, TARGET_FEAT_IDX, ND_COL, DEM_COL)
 import constraints as C                                                        # noqa: E402
 from model import BiLSTMImputer, masked_loss                                   # noqa: E402
+from constraint_layers import project_in_graph                                 # noqa: E402
 
 OUT = HERE / "results"
 
@@ -127,6 +128,16 @@ def main():
                          "counterfactual responsiveness comes from natural 5-yr demand variation, "
                          "NOT from perturbing demand with an unchanged target -- that teaches the "
                          "model to IGNORE demand)")
+    ap.add_argument("--constraint-mode", choices=["posthoc", "unrolled", "rayen_traj"],
+                    default="posthoc",
+                    help="how constraints are enforced. posthoc: project only at eval "
+                         "(train on soft-balance loss). unrolled: project IN-GRAPH each "
+                         "training step via unrolled cyclic POCS (model trains inside the "
+                         "constraints). rayen_traj: differentiable RAYEN ray-shoot over the "
+                         "whole gap. All three are scored by the SAME posthoc eval projection.")
+    ap.add_argument("--proj-iters", type=int, default=10,
+                    help="unrolled-mode: POCS rounds inside the forward pass (small = cheaper "
+                         "gradients; eval always uses the full 40-round projection)")
     ap.add_argument("--lam-bal", type=float, default=0.1)
     ap.add_argument("--lam-dev", type=float, default=0.0,
                     help="L2 penalty on the deviation from interp (keeps smooth channels "
@@ -144,7 +155,8 @@ def main():
     device = args.device or ("cuda" if torch.cuda.is_available() else
                              ("mps" if torch.backends.mps.is_available() else "cpu"))
     torch.manual_seed(args.seed); np.random.seed(args.seed)
-    print(f"device={device} epochs={args.epochs} n_train={args.n_train} perturb={args.perturb}")
+    print(f"device={device} epochs={args.epochs} n_train={args.n_train} "
+          f"constraint_mode={args.constraint_mode} perturb={args.perturb}")
 
     f = load_flats()
     # startup guard: surface the flat shapes so a stale/rebuilt prepared.npz is
@@ -210,6 +222,16 @@ def main():
             xnd = torch.from_numpy(tr["X"][j][:, gs:ge, ND_COL]).to(device)
             dev = model(xb, mb)[:, gs:ge]
             out = interp + dev                                # residual: interp + learned deviation
+            if args.constraint_mode != "posthoc":
+                # project IN-GRAPH so the model trains inside the constraints. Work in MW,
+                # then map back to y-scaled for the loss (balance term ~0 after projection).
+                fill_mw = out * ys_scale + ys_mean
+                P_mw = project_in_graph(fill_mw,
+                                        torch.from_numpy(tr["pL_mw"][j]).to(device),
+                                        torch.from_numpy(tr["pR_mw"][j]).to(device),
+                                        torch.from_numpy(tr["nd_mw"][j]).to(device),
+                                        mode=args.constraint_mode, iters=args.proj_iters)
+                out = (P_mw - ys_mean) / ys_scale
             loss, rec, bal = masked_loss(out, yb, xnd, nd_mean, nd_scale,
                                          ys_mean, ys_scale, sign, args.lam_bal)
             loss = loss + args.lam_dev * (dev ** 2).mean()    # keep dev small: stay near interp
@@ -233,8 +255,8 @@ def main():
     ev = evaluate(model, f, gws, device, args.context)
     OUT.mkdir(exist_ok=True)
     torch.save(model.state_dict(), args.out)
-    ev.update(method="bilstm", epochs=args.epochs, n_train=args.n_train,
-              perturb=args.perturb, context=args.context)
+    ev.update(method="bilstm", constraint_mode=args.constraint_mode, epochs=args.epochs,
+              n_train=args.n_train, perturb=args.perturb, context=args.context)
     # results json follows the checkpoint name, so --smoke (-> bilstm_smoke.pt)
     # writes bilstm_smoke_recon.json and never clobbers the real bilstm_recon.json
     recon_name = "bilstm_recon.json" if Path(args.out).stem == "bilstm_imputer" \

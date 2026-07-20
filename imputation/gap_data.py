@@ -134,13 +134,16 @@ def test_gap_windows(f: Flats, context: int = 72,
 
 # --------------------------- train sampling (random-position masks) ---------------------------
 
-def _build_windows(Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
+def _build_windows(f: Flats, Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
                    context: int, gap: int) -> dict:
     """Assemble model-ready window tensors from flat-row start positions:
       X    (n, W, 17)  features, with the 6 source cols ZEROED inside the gap
       mask (n, W, 1)   1 outside the gap, 0 inside (which steps are blanks)
       Y    (n, G, 6)   true sources (y-scaled, TARGETS order) in the gap
       interp (n, G, 6) linear-interp skeleton between the two boundary steps
+      pL_mw/pR_mw (n,6), nd_mw (n,G)  boundaries + net_demand in MW, for the in-graph
+                                      projection used by the `unrolled`/`rayen_traj`
+                                      constraint modes (posthoc mode ignores them).
     W = 2*context + gap; the gap is centred (rows [context, context+gap))."""
     W = 2 * context + gap
     tfi = np.asarray(TARGET_FEAT_IDX)
@@ -158,7 +161,11 @@ def _build_windows(Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
     mask = np.ones((len(starts), W, 1), dtype=np.float32)
     mask[:, gs:ge, :] = 0.0
     X[:, gs:ge, tfi] = 0.0                                              # blank the unknown subspace
+    nd_mw = np.stack([f.col_mw(Xflat, ND_COL)[s + gs:s + ge] for s in starts]).astype(np.float32)
     return {"X": X, "mask": mask, "Y": Y, "interp": interp,
+            "pL_mw": f.y_to_mw(pL).astype(np.float32),                 # (n,6)
+            "pR_mw": f.y_to_mw(pR).astype(np.float32),                 # (n,6)
+            "nd_mw": nd_mw,                                            # (n,G)
             "context": context, "gap": gap, "W": W}
 
 
@@ -173,7 +180,7 @@ def sample_train_windows(f: Flats, n: int, context: int = 48, gap: int = 36,
     rng = np.random.default_rng(seed)
     W = 2 * context + gap
     starts = rng.integers(0, Xflat.shape[0] - W, size=n)
-    return _build_windows(Xflat, Yflat, starts, context, gap)
+    return _build_windows(f, Xflat, Yflat, starts, context, gap)
 
 
 # --------------------------- validation gaps (midday-matched) ---------------------------
@@ -217,7 +224,7 @@ def sample_val_midday_windows(f: Flats, context: int = 48, gap: int = 36) -> dic
     starts = starts[run[starts + W - 1] - run[starts] == W - 1]
     if len(starts) == 0:
         raise RuntimeError("no contiguous 11:00-14:00 windows recoverable from the val flat")
-    return _build_windows(Xflat, Yflat, starts, context, gap)
+    return _build_windows(f, Xflat, Yflat, starts, context, gap)
 
 
 # --------------------------- general reconstruction windows (any split, any hour) ---------------------------
