@@ -39,17 +39,26 @@ ramps, box, SOC.
 4. **model.py / train.py / constraint_layers.py** — bi-LSTM over the window + mask
    channel. `--constraint-mode` builds all three enforcement styles:
    **posthoc** (project at eval), **unrolled** (project in-graph via the cyclic POCS),
-   **rayen_traj** (differentiable RAYEN ray-shoot over the whole gap). Early-stopped on
-   GENERAL held-out val (leak-free, matched to test). `--loss {mse,mae,wape}` aligns
-   the reconstruction term to the reported metric; `--perturb` OFF (measured harmful).
+   **rayen_traj** (differentiable RAYEN ray-shoot over the whole gap). **Consistent
+   scoring rule everywhere (val, test, scenario, figure): Π(F(x))** — the mode's own
+   deployed forward F (ray-shot for rayen_traj; identity otherwise, since Π is the
+   converged in-graph operator) followed by the shared exact projection Π. Early
+   stopping therefore ranks epochs on the deployed map (leak-free, general val,
+   matched to test). `--loss {mse,mae,wape}` aligns the reconstruction term to the
+   reported metric; `--perturb` OFF (measured harmful). Inference scripts take
+   `--mode` so a checkpoint is always run through the map it was trained with.
 5. **benchmark.py** — scores every mode on one identical general eval vs
    interp+projection → `results/benchmark.md`.
 
 > **v2 status (this branch):** exact-balance + SOC projection, general eval, robust
-> val, and the three constraint modes are implemented and smoke-tested; the
-> per-mode WAPE numbers below the general bar (interp+projection ≈ **macro 0.53 /
-> micro 0.066** on the general eval) are produced when you train each mode on GPU
-> (`colab/imputation_gapfill.ipynb`). The older midday-only pilot numbers follow.
+> val, the three constraint modes, and the deployment-matched Π(F(x)) scoring rule
+> are implemented and smoke-tested; the per-mode WAPE numbers below the general bar
+> (interp+projection ≈ **macro 0.53 / micro 0.066** on the general eval) are produced
+> when you train each mode on GPU (`colab/imputation_gapfill.ipynb`).
+> **Open (deliberately not yet implemented):** whole-day context with
+> SOC-at-gap-start + price-trajectory features, a residual-vs-direct head switch,
+> and varied mask lengths — the battery-targeted training upgrades; queued behind
+> the three-mode benchmark result. The older midday-only pilot numbers follow.
 
 ## Pilot results (CPU, 2026-07-15)
 
