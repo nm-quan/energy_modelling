@@ -86,6 +86,7 @@ class GapWindow:
     pR_mw: np.ndarray          # (6,) dispatch at the step just after the gap (14:00)
     truth_mw: np.ndarray       # (G,6) true dispatch in the gap (TARGETS order)
     nd_mw: np.ndarray          # (G,) net_demand in the gap
+    hour: float = -1.0         # clock hour the gap OPENS at (for per-time-of-day eval)
 
 
 def test_gap_windows(f: Flats, context: int = 72,
@@ -133,13 +134,16 @@ def test_gap_windows(f: Flats, context: int = 72,
 
 # --------------------------- train sampling (random-position masks) ---------------------------
 
-def _build_windows(Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
+def _build_windows(f: Flats, Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
                    context: int, gap: int) -> dict:
     """Assemble model-ready window tensors from flat-row start positions:
       X    (n, W, 17)  features, with the 6 source cols ZEROED inside the gap
       mask (n, W, 1)   1 outside the gap, 0 inside (which steps are blanks)
       Y    (n, G, 6)   true sources (y-scaled, TARGETS order) in the gap
       interp (n, G, 6) linear-interp skeleton between the two boundary steps
+      pL_mw/pR_mw (n,6), nd_mw (n,G)  boundaries + net_demand in MW, for the in-graph
+                                      projection used by the `unrolled`/`rayen_traj`
+                                      constraint modes (posthoc mode ignores them).
     W = 2*context + gap; the gap is centred (rows [context, context+gap))."""
     W = 2 * context + gap
     tfi = np.asarray(TARGET_FEAT_IDX)
@@ -157,7 +161,11 @@ def _build_windows(Xflat: np.ndarray, Yflat: np.ndarray, starts: np.ndarray,
     mask = np.ones((len(starts), W, 1), dtype=np.float32)
     mask[:, gs:ge, :] = 0.0
     X[:, gs:ge, tfi] = 0.0                                              # blank the unknown subspace
+    nd_mw = np.stack([f.col_mw(Xflat, ND_COL)[s + gs:s + ge] for s in starts]).astype(np.float32)
     return {"X": X, "mask": mask, "Y": Y, "interp": interp,
+            "pL_mw": f.y_to_mw(pL).astype(np.float32),                 # (n,6)
+            "pR_mw": f.y_to_mw(pR).astype(np.float32),                 # (n,6)
+            "nd_mw": nd_mw,                                            # (n,G)
             "context": context, "gap": gap, "W": W}
 
 
@@ -172,7 +180,7 @@ def sample_train_windows(f: Flats, n: int, context: int = 48, gap: int = 36,
     rng = np.random.default_rng(seed)
     W = 2 * context + gap
     starts = rng.integers(0, Xflat.shape[0] - W, size=n)
-    return _build_windows(Xflat, Yflat, starts, context, gap)
+    return _build_windows(f, Xflat, Yflat, starts, context, gap)
 
 
 # --------------------------- validation gaps (midday-matched) ---------------------------
@@ -216,7 +224,64 @@ def sample_val_midday_windows(f: Flats, context: int = 48, gap: int = 36) -> dic
     starts = starts[run[starts + W - 1] - run[starts] == W - 1]
     if len(starts) == 0:
         raise RuntimeError("no contiguous 11:00-14:00 windows recoverable from the val flat")
-    return _build_windows(Xflat, Yflat, starts, context, gap)
+    return _build_windows(f, Xflat, Yflat, starts, context, gap)
+
+
+# --------------------------- general reconstruction windows (any split, any hour) ---------------------------
+
+def _split_flats(f: Flats, split: str):
+    return {"train": (f.Xtr, f.Ytr), "val": (f.Xva, f.Yva), "test": (f.Xte, f.Yte)}[split]
+
+
+def sample_recon_windows(f: Flats, split: str = "test", n: int = 400, context: int = 48,
+                         gap: int = 36, seed: int = 0, midday: bool = False,
+                         min_windows: int = 30) -> list[GapWindow]:
+    """GENERAL-position gap windows for reconstruction scoring, as GapWindow objects
+    (projection quantities pL/pR/truth/nd + the recovered gap-open hour). Unlike
+    test_gap_windows (deployment-only 11:00-14:00), gaps land at ALL times of day so
+    the eval measures gap-filling in general, not just the midday shape (user concern
+    #1). `midday=True` keeps only gaps opening at 11:00 -- the deployment slice we
+    still report. Gaps are placed in genuine split rows (past the lb_carry context
+    prefix) with contiguous 5-min spacing. **Fails loud** if fewer than `min_windows`
+    are found, so a stale/rebuilt prepared.npz can't silently shrink the eval."""
+    Xflat, Yflat = _split_flats(f, split)
+    lb = f.lb_carry if split in ("val", "test") else 0
+    rng = np.random.default_rng(seed)
+    W = 2 * context + gap
+    hf = _hour_frac(Xflat, f)
+    ok = np.isclose(np.diff(hf) % 24.0, 1.0 / 12.0, atol=1e-3)     # contiguous 5-min steps
+    run = np.concatenate([[0], np.cumsum(ok)])
+    idx = f.test_index if split == "test" else None
+    out: list[GapWindow] = []
+    seen: set[int] = set()
+    tries, cap = 0, max(n * 50, 6000)
+    while len(out) < n and tries < cap:
+        s = int(rng.integers(0, len(Xflat) - W)); tries += 1
+        if s in seen:
+            continue
+        seen.add(s)
+        g0 = s + context                                          # first gap row
+        if g0 < lb:                                               # keep the gap in real split rows
+            continue
+        if midday and abs(hf[g0] - GAP_HOURS[0]) > 1.0 / 24:
+            continue
+        if run[s + W - 1] - run[s] != W - 1:                      # window must be contiguous
+            continue
+        gidx = np.arange(g0, g0 + gap)
+        day = pd.Timestamp(idx[g0 - lb]).normalize() if (idx is not None and g0 - lb < len(idx)) else None
+        out.append(GapWindow(
+            day=day, gap_idx=gidx,
+            ctxL_idx=np.arange(s, g0), ctxR_idx=np.arange(g0 + gap, s + W),
+            pL_mw=f.y_to_mw(Yflat[g0 - 1]), pR_mw=f.y_to_mw(Yflat[g0 + gap]),
+            truth_mw=f.y_to_mw(Yflat[gidx]), nd_mw=f.col_mw(Xflat, ND_COL)[gidx],
+            hour=float(hf[g0]),
+        ))
+    if len(out) < min_windows:
+        raise RuntimeError(
+            f"only {len(out)} recon windows for split={split!r} midday={midday} "
+            f"(need >={min_windows}). X{split}_flat has {len(Xflat)} rows -- is "
+            f"prepared.npz the committed one?")
+    return out
 
 
 if __name__ == "__main__":
@@ -236,3 +301,12 @@ if __name__ == "__main__":
     hrs = np.concatenate([_hour_frac(w[gs:ge], f) for w in va["X"]])
     print(f"val midday windows: {len(va['X'])}  gap clock span "
           f"{hrs.min():.3f}-{hrs.max():.3f}h (want 11.000-13.917)")
+    # general reconstruction windows (any hour) for test + val, plus the midday slice
+    for split in ("val", "test"):
+        gen = sample_recon_windows(f, split=split, n=400, context=48, seed=1)
+        hh = np.array([w.hour for w in gen])
+        print(f"recon '{split}' general: {len(gen)} windows, gap-open hours "
+              f"{hh.min():.1f}-{hh.max():.1f} (mean {hh.mean():.1f})")
+    slc = sample_recon_windows(f, split="test", n=400, context=48, seed=1, midday=True)
+    print(f"recon 'test' midday slice: {len(slc)} windows all opening at "
+          f"{np.mean([w.hour for w in slc]):.2f}h")

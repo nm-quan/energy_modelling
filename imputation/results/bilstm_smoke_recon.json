@@ -1,17 +1,28 @@
 {
-  "macro_WAPE": 0.4519199491814603,
+  "macro_WAPE": 0.8317145889649552,
+  "micro_WAPE": 0.06446840915898801,
   "per_channel_WAPE": {
-    "hydro": 0.38040592034275444,
-    "coal_brown": 0.025434073546206217,
-    "gas_steam": 0.3449537440441559,
-    "gas_ocgt": 0.5780014721398308,
-    "battery_charging": 0.31160090235434673,
-    "battery_discharging": 1.0711235826614678
+    "hydro": 0.15458673659094926,
+    "coal_brown": 0.020444058630962283,
+    "gas_steam": 3.5157319057075984,
+    "gas_ocgt": 0.2695667077007342,
+    "battery_charging": 0.5279640357561751,
+    "battery_discharging": 0.501994089403312
   },
-  "ramp_violations": 0,
+  "per_hour_WAPE": {
+    "night(0-6)": 0.050809303266619935,
+    "morning(6-11)": 0.07622516673008935,
+    "midday(11-14)": 0.08065485290897098,
+    "afternoon(14-18)": 0.09081065681199278,
+    "evening(18-24)": 0.049983165774439224
+  },
+  "ramp_overshoot_mw": 1.5258789076710855e-06,
   "n_neg": 0,
-  "balance_resid_max_mw": 573.6635923603303,
+  "balance_resid_max_mw": 7.031956738501322e-05,
+  "n_eval_windows": 200,
   "method": "bilstm",
+  "constraint_mode": "posthoc",
+  "loss": "mse",
   "epochs": 2,
   "n_train": 2000,
   "perturb": 0.0,

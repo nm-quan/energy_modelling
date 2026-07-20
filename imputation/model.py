@@ -36,12 +36,29 @@ class BiLSTMImputer(nn.Module):
 
 
 def masked_loss(pred_gap, y_gap, x_gap, nd_mean, nd_scale, y_mean, y_scale,
-                sign, lam_bal: float = 0.1):
-    """Reconstruction MSE on the gap + soft balance term (SIGN.P == net_demand).
-    Balance is soft here (a training nudge); the hard guarantee is the eval-time
-    projection. All tensors y-scaled except the balance term, done in MW."""
-    rec = ((pred_gap - y_gap) ** 2).mean()
+                sign, lam_bal: float = 0.1, loss: str = "mse"):
+    """Reconstruction loss on the gap + soft balance term (SIGN.P == net_demand).
+
+    `loss` picks the reconstruction term (the user's MSE-vs-metric point):
+      mse   standardized MSE (default; z-scored, so it UNDER-weights the volatile
+            battery channel -- see README). Kept as default for comparability.
+      mae   L1 on standardized values (less dominated by the smooth big channels).
+      wape  a WAPE-shaped loss in MW: per-channel Σ|err|/Σ|truth| meaned over
+            channels -- matches the REPORTED metric, so the battery channel is not
+            down-weighted (its denominator is its own scale).
+    Balance is soft here (a training nudge); the hard guarantee is the projection."""
     p_mw = pred_gap * y_scale + y_mean                       # (B,G,6) MW
+    y_mw = y_gap * y_scale + y_mean
+    if loss == "mse":
+        rec = ((pred_gap - y_gap) ** 2).mean()
+    elif loss == "mae":
+        rec = (pred_gap - y_gap).abs().mean()
+    elif loss == "wape":
+        num = (p_mw - y_mw).abs().sum((0, 1))               # (6,) per-channel Σ|err| in MW
+        den = y_mw.abs().sum((0, 1)).clamp_min(1.0)
+        rec = (num / den).mean()
+    else:
+        raise ValueError(f"unknown loss {loss!r}")
     nd_mw = x_gap * nd_scale + nd_mean                       # (B,G) MW  (net_demand col, pre-sliced)
     bal = (((p_mw * sign).sum(-1) - nd_mw) ** 2).mean() / (y_scale.mean() ** 2)
     return rec + lam_bal * bal, rec.detach(), bal.detach()
