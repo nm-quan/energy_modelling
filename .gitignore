@@ -7,6 +7,9 @@ __pycache__/
 script/.oe_key
 
 # raw data: regenerate with script/pull_data_hist.py (or the bundled last365 files)
+# AEMO archive dumps are huge (>100 MB, over GitHub's limit) -- never commit them
+data/PUBLIC_ARCHIVE*.CSV
+data/PUBLIC_ARCHIVE*.csv
 
 
 # preprocessed: only the compressed prepared artifacts ship in the repo

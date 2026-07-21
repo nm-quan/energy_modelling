@@ -90,7 +90,13 @@ def evaluate(model, f, gws, device, context, mode="posthoc"):
             interp = pL_s[None, :] + tt * (pR_s - pL_s)[None, :]
             fill = (interp + dev) * f.y_scale + f.y_mean
             fill = deployed_fill(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw, mode)   # F(x)
-            P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)     # Π(F(x))
+            if mode == "none":
+                # PURE baseline: score the RAW fill, no projection. resid/ramp/neg are
+                # still measured so the report SHOWS the violations the projection fixes.
+                P = fill
+                resid = np.abs(gw.nd_mw - (P * SIGN).sum(-1))               # balance gap of raw fill
+            else:
+                P, resid = C.project_gap(fill, gw.pL_mw, gw.pR_mw, gw.nd_mw)  # Π(F(x))
             e = np.abs(P - gw.truth_mw).sum(0); t = np.abs(gw.truth_mw).sum(0)
             num += e; den += t
             for name, lo, hi in HOUR_BUCKETS:
@@ -132,13 +138,17 @@ def main():
                          "counterfactual responsiveness comes from natural 5-yr demand variation, "
                          "NOT from perturbing demand with an unchanged target -- that teaches the "
                          "model to IGNORE demand)")
-    ap.add_argument("--constraint-mode", choices=["posthoc", "unrolled", "rayen_traj"],
+    ap.add_argument("--constraint-mode", choices=["posthoc", "unrolled", "rayen_traj", "none"],
                     default="posthoc",
                     help="how constraints are enforced. posthoc: project only at eval "
                          "(train on soft-balance loss). unrolled: project IN-GRAPH each "
                          "training step via unrolled cyclic POCS (model trains inside the "
                          "constraints). rayen_traj: differentiable RAYEN ray-shoot over the "
-                         "whole gap. All three are scored by the SAME posthoc eval projection.")
+                         "whole gap. posthoc/unrolled/rayen_traj are all scored by the SAME "
+                         "posthoc eval projection. none: PURE bi-LSTM baseline -- NO in-graph "
+                         "projection AND no eval projection; the raw fill is scored directly "
+                         "(pair with --lam-bal 0 for a truly unconstrained model). Its ramp/"
+                         "balance/neg columns then SHOW the violations the projection fixes.")
     ap.add_argument("--proj-iters", type=int, default=10,
                     help="unrolled-mode: POCS rounds inside the forward pass (small = cheaper "
                          "gradients; eval always uses the full 40-round projection)")
@@ -234,7 +244,10 @@ def main():
                 ndb = torch.from_numpy(va["nd_mw"][sl]).to(device)
                 if args.constraint_mode == "rayen_traj":                 # F(x)
                     fill = project_in_graph(fill, pLb, pRb, ndb, mode="rayen_traj")
-                P = C.cyclic_project(fill, pLb, pRb, ndb, iters=15)      # Π(F(x))
+                if args.constraint_mode == "none":
+                    P = fill                                             # raw: no projection (match eval)
+                else:
+                    P = C.cyclic_project(fill, pLb, pRb, ndb, iters=15)  # Π(F(x))
                 truth = torch.from_numpy(va["Y"][sl]).to(device) * ys_scale + ys_mean
                 num += (P - truth).abs().sum((0, 1)).cpu().numpy()
                 den += truth.abs().sum((0, 1)).cpu().numpy()
@@ -253,7 +266,7 @@ def main():
             xnd = torch.from_numpy(tr["X"][j][:, gs:ge, ND_COL]).to(device)
             dev = model(xb, mb)[:, gs:ge]
             out = interp + dev                                # residual: interp + learned deviation
-            if args.constraint_mode != "posthoc":
+            if args.constraint_mode in ("unrolled", "rayen_traj"):   # posthoc & none: no in-graph projection
                 # project IN-GRAPH so the model trains inside the constraints. Work in MW,
                 # then map back to y-scaled for the loss (balance term ~0 after projection).
                 fill_mw = out * ys_scale + ys_mean

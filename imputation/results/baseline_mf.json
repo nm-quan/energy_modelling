@@ -1,0 +1,21 @@
+{
+  "method": "mf",
+  "macro_WAPE": 1.3706862998159426,
+  "micro_WAPE": 0.19276325385227666,
+  "midday_micro_WAPE": 0.20715950688254214,
+  "per_channel_WAPE": {
+    "hydro": 0.4979101941439702,
+    "coal_brown": 0.08424182084209214,
+    "gas_steam": 4.690119369111016,
+    "gas_ocgt": 0.8352725150082041,
+    "battery_charging": 1.2215602945822612,
+    "battery_discharging": 0.895013605208113
+  },
+  "ramp_overshoot_mw": 1.5258789076710855e-06,
+  "balance_resid_max_mw": 0.5245570282982044,
+  "n_neg": 0,
+  "context": 48,
+  "n_eval": 800,
+  "eval_seed": 123,
+  "n_ref": 20000
+}

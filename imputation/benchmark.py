@@ -24,7 +24,10 @@ from gap_data import load_flats, sample_recon_windows                    # noqa:
 import constraints as C                                                  # noqa: E402
 
 OUT = HERE / "results"
-MODES = ["posthoc", "unrolled", "rayen_traj"]
+# "none" = the pure bi-LSTM baseline (raw fill, NOT projected). Its ramp_overshoot /
+# balance_resid / n_neg columns are non-zero on purpose -- they show the violations the
+# projected modes fix, so the row is NOT constraint-clean like the others.
+MODES = ["none", "posthoc", "unrolled", "rayen_traj"]
 
 
 def interp_fill(gw):
@@ -75,6 +78,11 @@ def main():
     gws = sample_recon_windows(f, "test", n=EVAL_SETTINGS["n_eval"],    # same windows as train.py
                                context=EVAL_SETTINGS["context"], seed=EVAL_SETTINGS["eval_seed"])
     rows = [("interp+projection", score_fill(gws, interp_fill))]
+    # classical imputers (classical_baselines.py) — same eval windows, same Π, driver-only.
+    # Their jsons already store score_fill's exact schema, so they render like the interp row.
+    for m in ["mean", "knn", "mice", "mf"]:
+        p = OUT / f"baseline_{m}.json"
+        rows.append((f"classical/{m}", json.loads(p.read_text()) if p.exists() else None))
     for mode in MODES:
         p = OUT / f"bilstm_{mode}_recon.json"
         if p.exists():
@@ -86,13 +94,15 @@ def main():
             ("ramp_overshoot_mw", "{:.1e}"), ("balance_resid_max_mw", "{:.1e}"), ("n_neg", "{:d}")]
     hdr = "| method | " + " | ".join(c for c, _ in cols) + " |"
     sep = "| --- | " + " | ".join("---" for _ in cols) + " |"
-    lines = [f"# Constraint-mode benchmark (general eval, {len(gws)} windows, seed 123)", "",
-             "Same windows, same posthoc projection. macro=mean per-channel WAPE; micro=Σerr/Σtruth "
-             "(stable); midday=the 11-14 deployment slice. Bar = interpolation + projection.", "",
+    lines = [f"# Imputation benchmark (general eval, {len(gws)} windows, seed 123)", "",
+             "Same windows, same projection Π. macro=mean per-channel WAPE; micro=Σerr/Σtruth "
+             "(stable); midday=the 11-14 deployment slice. Bar = interpolation + projection. "
+             "`classical/*` (mean/knn/mice/mf) impute the 6 sources from the known drivers only "
+             "(no boundary/temporal structure); `bilstm/*` are the learned modes.", "",
              hdr, sep]
     for name, r in rows:
         if r is None:
-            lines.append(f"| {name} | _not trained yet_ | | | | | |")
+            lines.append(f"| {name} | _not run yet_ | | | | | |")
             continue
         cells = []
         for c, fmt in cols:

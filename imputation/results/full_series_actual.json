@@ -1,0 +1,15 @@
+{
+  "n_steps": 53568,
+  "n_days": 186,
+  "n_time_gaps": 0,
+  "ramp_violations": 0,
+  "ramp_max_over_mw": 0.00211492323865059,
+  "ramp_violations_at_midnight_seams": 0,
+  "n_neg": 0,
+  "balance_resid_max_mw": 0.0007502549578930484,
+  "balance_resid_p95_mw": 0.0002626224062510118,
+  "soc_worst_day_swing_mwh": 3762.309958708215,
+  "soc_worst_day_pct_of_pack": 79.44486002656845,
+  "soc_infeasible_days": 0,
+  "tag": "actual"
+}
