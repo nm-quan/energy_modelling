@@ -61,8 +61,8 @@ def build_qp_layer(device):
     sign = np.array(SIGN)
     cons = [P >= 0, P <= cap[None, :]]
     cons += [P @ sign == nd]                              # balance per step
-    full_prev = cp.vstack([cp.reshape(pL, (1, 6)), P])    # (37,6): [pL; P]
-    full_next = cp.vstack([P, cp.reshape(pR, (1, 6))])    # (37,6): [P; pR]
+    full_prev = cp.vstack([cp.reshape(pL, (1, 6), order="C"), P])    # (37,6): [pL; P]
+    full_next = cp.vstack([P, cp.reshape(pR, (1, 6), order="C")])    # (37,6): [P; pR]
     dP = full_next - full_prev                            # (37,6) steps incl. both seams
     cons += [dP <= R_UP[None, :], dP >= -R_DN[None, :]]
     obj = cp.Minimize(cp.sum_squares(P - fill))
@@ -114,12 +114,15 @@ def main():
         xb = torch.from_numpy(b["X"]).to(device); mb = torch.from_numpy(b["mask"]).to(device)
         interp = torch.from_numpy(b["interp"]).to(device)
         dev = model(xb, mb)[:, gs:ge]
-        fill = (interp + dev) * ys_scale + ys_mean               # (B,G,6) MW
-        nd = torch.from_numpy(b["nd_mw"]).to(device)
-        pL = torch.from_numpy(b["pL_mw"]).to(device); pR = torch.from_numpy(b["pR_mw"]).to(device)
+        fill = (interp + dev) * ys_scale + ys_mean               # (B,G,6) MW (device)
+        nd = torch.from_numpy(b["nd_mw"])
+        pL = torch.from_numpy(b["pL_mw"]); pR = torch.from_numpy(b["pR_mw"])
         capb = cap_t.expand(fill.shape[0], 6)
-        (P,) = qp(fill, nd, pL, pR, capb)                        # differentiable QP solve
-        return (P - ys_mean) / ys_scale
+        # cvxpylayers/diffcp solves on CPU (no CUDA support): pass CPU tensors and
+        # move the result back. .cpu()/.to(device) are differentiable, so grads
+        # still flow back to the GPU model.
+        (P,) = qp(fill.cpu(), nd.float(), pL.float(), pR.float(), capb.cpu())
+        return (P.to(device) - ys_mean) / ys_scale
 
     model = BiLSTMImputer(n_features=n_feat).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
