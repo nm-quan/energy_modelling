@@ -31,25 +31,33 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# data max (5-min) from CONSTRAINT.md / capacity_constraints.json
+# CANON caps + ramps = empirical max over the FULL history (CONSTRAINT.md):
+# data/preprocessed/hist/5min/net_dispatch_totdem/table.parquet, 500,832 rows,
+# 2021-10-01..2026-07-05 (gap-free 5-min), so every historical actual is feasible.
+# Supersedes the last365 numbers (capacity_constraints.json / empirical_bounds.json).
+
+# per-target max output (MW). Rounded OUTWARD (up) to 0.1 so the exact historical
+# extreme sits inside the cap (0 actual violations across all 500,832 rows).
 CAPS = {
-    "hydro":               1833.6,
-    "coal_brown":          4895.7,
-    "gas_steam":            513.8,
+    "hydro":               2168.0,
+    "coal_brown":          4895.8,
+    "gas_steam":            516.4,
     "gas_ocgt":            1748.6,
-    "battery_charging":    1611.5,
-    "battery_discharging": 1687.4,
+    "battery_charging":    1611.6,
+    "battery_discharging": 1687.5,
 }
 
-# 5-min observed ramps (MW per 5 min). Asymmetric: (down, up).
-# Non-battery from CONSTRAINT.md; battery from data/empirical_bounds.json 5min.
+# per-target max 5-min step (MW per 5 min), asymmetric: (down, up). Rounded OUTWARD
+# (down more negative, up higher) to 0.1. coal_brown down = -1553.6 is a single
+# unit-trip (2024-02-13); kept per the empirical-max policy, so the coal down-ramp
+# is effectively non-binding.
 RAMPS = {
-    "hydro":               (-575.3,  790.7),
-    "coal_brown":          (-566.8,  268.4),
-    "gas_steam":           (-499.9,   58.9),
-    "gas_ocgt":            (-193.0,  262.9),
-    "battery_charging":    (-863.1,  794.95),
-    "battery_discharging": (-670.8,  715.0),
+    "hydro":               (-735.4,  956.5),
+    "coal_brown":         (-1553.6,  333.4),
+    "gas_steam":           (-499.9,   82.5),
+    "gas_ocgt":            (-363.9,  400.3),
+    "battery_charging":    (-863.1,  795.0),
+    "battery_discharging": (-670.9,  715.1),
 }
 
 # Battery energy reservoir, from capacity_constraints.json (full VIC fleet).

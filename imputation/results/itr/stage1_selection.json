@@ -1,0 +1,9 @@
+{
+  "tstar": "T4",
+  "val_blackout_mae_mw": 92.72466362847223,
+  "ties_within_5pct": [
+    "T2",
+    "T3"
+  ],
+  "smoke": false
+}

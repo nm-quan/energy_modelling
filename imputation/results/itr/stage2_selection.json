@@ -1,0 +1,9 @@
+{
+  "tstar": "T4",
+  "best_guaranteed": "C2 posthoc \u03a0(C0)",
+  "map": "proj",
+  "ckpt_stem": "itr_T4",
+  "blackout_mae_mw": 96.42910549078383,
+  "ties_within_5pct": [],
+  "smoke": false
+}

@@ -1,0 +1,18 @@
+{
+  "source": "user-supplied capture prices (mean $US/MWh), 2026-07-22 discussion; volumes-signed convention: battery_charging volume is negative in the source table",
+  "unit": "USD/MWh",
+  "dispatch": {
+    "hydro": 121.77,
+    "coal_brown": 62.39,
+    "gas_steam": 211.18,
+    "gas_ocgt": 151.85,
+    "battery_charging": 17.65,
+    "battery_discharging": 107.16
+  },
+  "renewables_reference": {
+    "solar_rooftop": 11.76,
+    "solar_utility": 22.75,
+    "wind": 35.16
+  },
+  "cost_loss_convention": "cost = sum_i c_i * E_i with battery_charging entering NEGATIVE (signed volume), so battery cycling nets discharge*107.16 - charge*17.65"
+}

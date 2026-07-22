@@ -1,0 +1,11 @@
+{
+  "arm": "T4",
+  "constraint": "soft",
+  "lam": 10.0,
+  "best_val_gap_mae_mw": 116.4461339931886,
+  "val_blackout_mae_mw": 123.55878363715277,
+  "epochs_ran": 49,
+  "n_train": 40000,
+  "seed": 0,
+  "smoke": false
+}

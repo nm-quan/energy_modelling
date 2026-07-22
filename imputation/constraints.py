@@ -101,10 +101,21 @@ _RDN_T = torch.tensor(R_DN, dtype=torch.float32)
 _CAP_T = torch.tensor(CAP, dtype=torch.float32)
 
 
-def _balance_project(P, nd, sign, free_mask):
+def _balance_project(P, nd, sign, free_mask, size_aware: bool = False):
     """Move the free channels along SIGN so Σ SIGN·P == nd at every step (exact,
-    per step, linear). P (B,N,6), nd (B,N), sign/free_mask (6,)."""
+    per step, linear). P (B,N,6), nd (B,N), sign/free_mask (6,).
+
+    size_aware=False (default): equal split -- every free channel moves by the
+    same MW (resid / n_free), which dumps coal-sized corrections on the ~6 MW
+    gas_steam channel. size_aware=True (plan1 'size-aware layer'): split the
+    residual in proportion to each channel's current level w_i = |P_i| + 1 MW,
+    so big channels absorb big MW and the model's mix ratios survive the repair.
+    Both are exact and differentiable."""
     resid = nd - (P * sign).sum(-1)                       # (B,N)
+    if size_aware:
+        w = (P.abs() + 1.0) * free_mask                   # (B,N,6) level-proportional
+        d = w * sign
+        return P + (resid / w.sum(-1).clamp_min(1e-6)).unsqueeze(-1) * d
     s = sign * free_mask                                  # only free channels move
     return P + (resid / (s * s).sum()).unsqueeze(-1) * s
 
@@ -143,9 +154,11 @@ def _soc_project(P, cap_eff):
     return torch.cat([P[..., :CHG_IDX], batt], dim=-1)
 
 
-def cyclic_project(P, pL, pR, nd, iters=40, soc=True, free=None, margin_mwh=100.0):
+def cyclic_project(P, pL, pR, nd, iters=40, soc=True, free=None, margin_mwh=100.0,
+                   size_aware: bool = False):
     """Project raw dispatch P (B,N,6) MW onto {balance}∩{ramp}∩{box}∩{SOC}, with the
-    boundaries pL,pR (B,6) pinned and Σ SIGN·P snapped to nd (B,N). Differentiable."""
+    boundaries pL,pR (B,6) pinned and Σ SIGN·P snapped to nd (B,N). Differentiable.
+    size_aware: level-proportional balance split (see _balance_project)."""
     dev, dt = P.device, P.dtype                          # match input dtype (f64 posthoc, f32 train)
     sign = _SIGN_T.to(dev, dt); rup = _RUP_T.to(dev, dt)
     rdn = _RDN_T.to(dev, dt); cap = _CAP_T.to(dev, dt)
@@ -154,7 +167,7 @@ def cyclic_project(P, pL, pR, nd, iters=40, soc=True, free=None, margin_mwh=100.
         free_mask = torch.zeros(6, device=dev, dtype=dt); free_mask[list(free)] = 1.0
     cap_eff = BATT_CAP_MWH - 2.0 * margin_mwh
     for _ in range(iters):
-        P = _balance_project(P, nd, sign, free_mask)
+        P = _balance_project(P, nd, sign, free_mask, size_aware=size_aware)
         P = _ramp_project(P, pL, pR, rup, rdn)
         P = torch.minimum(P.clamp_min(0.0), cap)
         if soc:

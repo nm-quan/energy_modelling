@@ -57,7 +57,8 @@ def deployed_fill(fill_mw: np.ndarray, pL: np.ndarray, pR: np.ndarray,
     return out[0].numpy()
 
 
-def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40):
+def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40,
+                       soc: bool = False, anchor=None, size_aware: bool = False):
     """Differentiable RAYEN ray-shoot generalized from one step to the whole gap.
 
     RAYEN's move: from a strictly feasible ANCHOR, travel along a direction that is
@@ -75,7 +76,14 @@ def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40):
                   -- the RAYEN single-shot (conservative but exact & differentiable).
       y = A + alpha* * r    -> balance exact, ramp+box satisfied by construction.
 
-    SOC is non-binding on all data and is guaranteed by the posthoc eval projection.
+    soc=False (default): SOC is left to the posthoc eval projection -- fine whenever
+    the shot is followed by Π, but the bare rayen map (itr C3) is NOT, and its
+    balance-forced battery fills violate the swing cap on blackout windows. soc=True
+    adds the swing constraint as one more RAYEN wall: E(t) = cumsum((eta*chg -
+    dis/eta)*DT) is LINEAR in the dispatch, so along y(a) = A + a*r every ordered
+    pair (t,t') gives a linear inequality  dE_A(t,t') + a*dE_r(t,t') <= cap_eff,
+    i.e. exactly the box/ramp "distance to the nearest wall" form. The anchor is
+    then built with the SOC step ON so a=0 is swing-feasible.
     """
     dev, dt = fill_mw.device, fill_mw.dtype
     sign = C._SIGN_T.to(dev, dt); rup = C._RUP_T.to(dev, dt)
@@ -89,10 +97,32 @@ def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40):
     # balance snap would push channels negative). Anchor balance is ~1e-3 MW here;
     # the shot inherits it, and the posthoc EVAL projection makes the scored output
     # machine-exact -- so in-graph balance stays negligible without any negatives.
-    A = C.cyclic_project(interp, pL_mw, pR_mw, nd_mw, iters=anchor_iters, soc=False)
+    # soc=True needs a longer anchor: the SOC damping is the LAST step of each POCS
+    # cycle and un-does a little balance, so balance+SOC settle jointly only after
+    # ~120 cycles (40: bal max 1.5 MW on blackout; 120: exact to 1e-3). The anchor
+    # carries no model gradient either way, so this is a constant-cost knob.
+    # `anchor` overrides the interp-based construction with an externally supplied
+    # feasible (B,N,6) trajectory -- needed for whole-day counterfactuals, where the
+    # shifted nd jumps ~2000 MW in one step at the free-window edges and the POCS
+    # anchor can stall from a flat interp start; the Option-A projected reference
+    # (scenario_eval.build_shift_scenario's P_ref) is the intended anchor there.
+    # It must satisfy balance/ramp(seams to pL,pR)/box(/SOC) at a=0.
+    if anchor is not None:
+        A = anchor.to(dev, dt)
+    else:
+        A = C.cyclic_project(interp, pL_mw, pR_mw, nd_mw,
+                             iters=max(anchor_iters, 120) if soc else anchor_iters,
+                             soc=soc, size_aware=size_aware)
 
     r = fill_mw - A
-    r = r - ((r * sign).sum(-1) / ss).unsqueeze(-1) * sign        # tangent to balance plane
+    if size_aware:
+        # size-aware tangent removal: absorb the balance component of r in
+        # proportion to the anchor's channel levels (w from A: fixed, gradient-
+        # free) instead of equally -- Σ sign·(r - a·w·sign) = 0 with a = sign·r/Σw.
+        w = A.abs() + 1.0                                        # (B,N,6)
+        r = r - ((r * sign).sum(-1) / w.sum(-1).clamp_min(1e-6)).unsqueeze(-1) * (w * sign)
+    else:
+        r = r - ((r * sign).sum(-1) / ss).unsqueeze(-1) * sign    # tangent to balance plane
 
     big = torch.full_like(A, 1e9)
     a_box_hi = torch.where(r > 1e-9, (cap - A) / r.clamp_min(1e-9), big).amin((1, 2))
@@ -104,4 +134,22 @@ def rayen_traj_project(fill_mw, pL_mw, pR_mw, nd_mw, anchor_iters: int = 40):
     a_rup = torch.where(dr > 1e-9, (rup - dA) / dr.clamp_min(1e-9), big_r).amin((1, 2))
     a_rdn = torch.where(dr < -1e-9, (-rdn - dA) / dr.clamp_max(-1e-9), big_r).amin((1, 2))
     alpha = torch.stack([a_box_hi, a_box_lo, a_rup, a_rdn], 0).amin(0).clamp(0.0, 1.0)
+    if soc:
+        # SOC swing wall. alpha <= a_box keeps the whole segment inside the box, so
+        # the swing clamps are no-ops and E is exactly linear in alpha there. Same
+        # cap_eff (200 MWh headroom) as cyclic_project, so the anchor's swing
+        # satisfies every pair at a=0 and (cap_eff - dEA) >= 0.
+        cap_eff = C.BATT_CAP_MWH - 2.0 * 100.0
+        eA = (A[..., C.CHG_IDX] * C.ETA - A[..., C.DIS_IDX] / C.ETA) * C.DT
+        er = (r[..., C.CHG_IDX] * C.ETA - r[..., C.DIS_IDX] / C.ETA) * C.DT
+        EA = torch.cat([torch.zeros_like(eA[:, :1]), eA.cumsum(1)], 1)   # (B,N+1), E(0)=0
+        Er = torch.cat([torch.zeros_like(er[:, :1]), er.cumsum(1)], 1)
+        a_soc = []
+        for i in range(0, B, 32):                          # chunk the (b,N+1,N+1) pair grids
+            dEA = EA[i:i + 32].unsqueeze(2) - EA[i:i + 32].unsqueeze(1)
+            dEr = Er[i:i + 32].unsqueeze(2) - Er[i:i + 32].unsqueeze(1)
+            big_s = torch.full_like(dEA, 1e9)
+            a_soc.append(torch.where(dEr > 1e-9, (cap_eff - dEA) / dEr.clamp_min(1e-9),
+                                     big_s).amin((1, 2)))
+        alpha = torch.minimum(alpha, torch.cat(a_soc).clamp(0.0, 1.0))
     return A + alpha.view(B, 1, 1) * r
