@@ -34,6 +34,7 @@ import torch
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / "ml"))          # check_caps lives in ml/ (RAMPS/CAPS canon)
 import gap_data as GD                                                  # noqa: E402
 GD.NPZ = ROOT / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_ren" / "prepared.npz"
 from gap_data import load_flats, sample_train_windows, TARGETS, SIGN, ND_COL   # noqa: E402
