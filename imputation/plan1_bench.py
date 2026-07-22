@@ -30,7 +30,8 @@ from model import BiLSTMImputer                                        # noqa: E
 from constraint_layers import rayen_traj_project                       # noqa: E402
 from plan1_train import C_SIGNED                                       # noqa: E402
 
-OUT = HERE / "results" / "plan1"
+WEIGHTS = HERE / "results" / "plan1"          # checkpoints load from here
+OUT = HERE / "results" / "plan1"              # bench written here (--out overrides)
 ARMS = ["baseline", "cost", "size_aware"]
 DT = 5.0 / 60.0
 
@@ -55,7 +56,7 @@ def fill_window(model, f, gw, device, context=48):
 def score(name, fills, gws, size_aware):
     num = np.zeros(6); den = np.zeros(6); abs_err = np.zeros(6); n_cells = 0
     cost_p = cost_t = 0.0
-    viol = {"bal>1MW": 0, "ramp": 0, "neg": 0}
+    viol = {"bal>1MW": 0, "ramp": 0, "neg": 0, "SOC": 0}
     for fill, gw in zip(fills, gws):
         nd_bal = gw.truth_mw @ SIGN                       # supply-side target
         with torch.no_grad():
@@ -78,6 +79,7 @@ def score(name, fills, gws, size_aware):
         d = np.diff(full, axis=0)
         viol["ramp"] += int(((d > C.R_UP + 0.6) | (d < -(C.R_DN + 0.6))).sum())
         viol["neg"] += int((P < -0.1).sum())
+        viol["SOC"] += int(C._soc_swing_mwh(P) > C.BATT_CAP_MWH + 1e-6)
     mae = abs_err / n_cells
     mre = 100.0 * num / np.clip(den, 1e-9, None)
     return {"name": name,
@@ -94,7 +96,11 @@ def main():
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--n", type=int, default=400)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--out", default=None, help="output dir for bench.md/json (default results/plan1)")
     args = ap.parse_args()
+    global OUT
+    if args.out:
+        OUT = Path(args.out)
     sfx = "_smoke" if args.smoke else ""
     f = load_flats()
     n_feat = len(f.feat_cols)
@@ -112,7 +118,7 @@ def main():
     rows.append(score("interp+map (ref)", interp_fills, gws, size_aware=False))
 
     for arm in ARMS:
-        p = OUT / f"{arm}{sfx}.pt"
+        p = WEIGHTS / f"{arm}{sfx}.pt"
         if not p.exists():
             print(f"  [skip] {p} missing"); continue
         model = BiLSTMImputer(n_features=n_feat).to(args.device)
@@ -123,13 +129,13 @@ def main():
         print(f"  scored {arm}")
 
     lines = [f"# plan1 benchmark — {len(gws)} test 3h gaps (seed 123), map balance = supply-side nd", "",
-             "| model | MAE agg (MW) | MRE agg (%) | cost pred ($) | Δcost vs truth ($) | bal>1MW | ramp | neg |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "| model | MAE agg (MW) | MRE agg (%) | cost pred ($) | Δcost vs truth ($) | bal>1MW | ramp | neg | SOC |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r in rows:
         v = r["violations"]
         lines.append(f"| {r['name']} | {r['mae_agg']:.1f} | {r['mre_agg']:.2f} | "
                      f"{r['cost_pred_usd']:,.0f} | {r['cost_delta_usd']:+,.0f} | "
-                     f"{v['bal>1MW']} | {v['ramp']} | {v['neg']} |")
+                     f"{v['bal>1MW']} | {v['ramp']} | {v['neg']} | {v['SOC']} |")
     lines += ["", "## per-channel MRE (%)", "",
               "| model | " + " | ".join(TARGETS) + " |",
               "| --- |" + " --- |" * 6]

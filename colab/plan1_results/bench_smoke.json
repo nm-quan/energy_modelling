@@ -1,0 +1,118 @@
+[
+ {
+  "name": "interp+map (ref)",
+  "mae": {
+   "hydro": 52.823198751033615,
+   "coal_brown": 70.21646303631647,
+   "gas_steam": 20.735543865823104,
+   "gas_ocgt": 27.195198812775992,
+   "battery_charging": 55.70894346973841,
+   "battery_discharging": 55.734516454525014
+  },
+  "mae_agg": 47.068977398368766,
+  "mre": {
+   "hydro": 14.404220424613365,
+   "coal_brown": 1.8539970573109552,
+   "gas_steam": 248.26274151337248,
+   "gas_ocgt": 22.47644831823862,
+   "battery_charging": 65.01417479345238,
+   "battery_discharging": 49.202922289426084
+  },
+  "mre_agg": 6.300603056789081,
+  "cost_pred_usd": 57016720.05993924,
+  "cost_truth_usd": 56107481.12153401,
+  "cost_delta_usd": 909238.9384052306,
+  "violations": {
+   "bal>1MW": 0,
+   "ramp": 0,
+   "neg": 0
+  }
+ },
+ {
+  "name": "baseline",
+  "mae": {
+   "hydro": 52.823198751033615,
+   "coal_brown": 70.21646303631647,
+   "gas_steam": 20.735543865823104,
+   "gas_ocgt": 27.195198812775992,
+   "battery_charging": 55.70894346973841,
+   "battery_discharging": 55.734516454525014
+  },
+  "mae_agg": 47.068977398368766,
+  "mre": {
+   "hydro": 14.404220424613365,
+   "coal_brown": 1.8539970573109552,
+   "gas_steam": 248.26274151337248,
+   "gas_ocgt": 22.47644831823862,
+   "battery_charging": 65.01417479345238,
+   "battery_discharging": 49.202922289426084
+  },
+  "mre_agg": 6.300603056789081,
+  "cost_pred_usd": 57016720.05993924,
+  "cost_truth_usd": 56107481.12153401,
+  "cost_delta_usd": 909238.9384052306,
+  "violations": {
+   "bal>1MW": 0,
+   "ramp": 0,
+   "neg": 0
+  }
+ },
+ {
+  "name": "cost",
+  "mae": {
+   "hydro": 52.823198751033615,
+   "coal_brown": 70.21646303631647,
+   "gas_steam": 20.735543865823104,
+   "gas_ocgt": 27.195198812775992,
+   "battery_charging": 55.70894346973841,
+   "battery_discharging": 55.734516454525014
+  },
+  "mae_agg": 47.068977398368766,
+  "mre": {
+   "hydro": 14.404220424613365,
+   "coal_brown": 1.8539970573109552,
+   "gas_steam": 248.26274151337248,
+   "gas_ocgt": 22.47644831823862,
+   "battery_charging": 65.01417479345238,
+   "battery_discharging": 49.202922289426084
+  },
+  "mre_agg": 6.300603056789081,
+  "cost_pred_usd": 57016720.05993924,
+  "cost_truth_usd": 56107481.12153401,
+  "cost_delta_usd": 909238.9384052306,
+  "violations": {
+   "bal>1MW": 0,
+   "ramp": 0,
+   "neg": 0
+  }
+ },
+ {
+  "name": "size_aware",
+  "mae": {
+   "hydro": 53.60139689387641,
+   "coal_brown": 117.89075350419812,
+   "gas_steam": 1.5798188777652111,
+   "gas_ocgt": 15.167310812871671,
+   "battery_charging": 50.63734361195213,
+   "battery_discharging": 66.46663435489556
+  },
+  "mae_agg": 50.89054300925986,
+  "mre": {
+   "hydro": 14.616425248413686,
+   "coal_brown": 3.1127900869616423,
+   "gas_steam": 18.914872367298862,
+   "gas_ocgt": 12.535568500864118,
+   "battery_charging": 59.09545045405301,
+   "battery_discharging": 58.67733054922931
+  },
+  "mre_agg": 6.812153748997978,
+  "cost_pred_usd": 56221459.76041046,
+  "cost_truth_usd": 56107481.12153401,
+  "cost_delta_usd": 113978.63887644559,
+  "violations": {
+   "bal>1MW": 0,
+   "ramp": 0,
+   "neg": 0
+  }
+ }
+]

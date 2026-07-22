@@ -38,7 +38,8 @@ from model import BiLSTMImputer                                        # noqa: E
 from constraint_layers import rayen_traj_project                       # noqa: E402
 from shift_model import FixedPercentageShift                           # noqa: E402
 
-OUT = HERE / "results" / "plan1"
+WEIGHTS = HERE / "results" / "plan1"          # checkpoints load from here
+OUT = HERE / "results" / "plan1"              # figures written here (--out overrides)
 TABLE = ROOT / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_ren" / "table.parquet"
 ARMS = ["baseline", "cost", "size_aware"]
 CTX, GAP = 48, 36
@@ -86,18 +87,20 @@ def model_fill(model, te, feat_cols, xm, xs_, ym, ys_, rows, overrides=None,
     return interp + dev * ys_, pL, pR
 
 
-def rayen(fill, pL, pR, nd, size_aware):
+def rayen(fill, pL, pR, nd, size_aware, soc=False):
     # counterfactual free-window nd carries the curtailment credit (a ~GW-scale
     # drop at the seam), so the POCS anchor needs many more cycles than the
-    # actual-data case -- 400/240 drives the residual to ~0.
+    # actual-data case -- 400/240 drives the residual to ~0. soc=True (used for the
+    # counterfactual, per plan) adds the SOC swing wall.
     with torch.no_grad():
         return rayen_traj_project(torch.tensor(fill[None]), torch.tensor(pL[None]),
                                   torch.tensor(pR[None]), torch.tensor(nd[None]),
                                   anchor_iters=400 if size_aware else 240,
-                                  size_aware=size_aware)[0].numpy()
+                                  size_aware=size_aware, soc=soc)[0].numpy()
 
 
-def draw_stack(ax, te_rows, disp, dem_line, shade=None, title="", curt_solid=None):
+def draw_stack(ax, te_rows, disp, dem_line, shade=None, title="", curt_solid=None,
+               nd_line=None):
     """disp (n,6) MW TARGETS order; renewables/curtailment actual from te_rows.
     curt_solid: optional (n,) bool -- rows where curtailment is DELIVERED under the
     counterfactual credit; drawn solid there (hatched = spilled, elsewhere)."""
@@ -125,6 +128,8 @@ def draw_stack(ax, te_rows, disp, dem_line, shade=None, title="", curt_solid=Non
     ax.fill_between(x, 0, -disp[:, ti["battery_charging"]], color=COLORS["battery_charging"],
                     alpha=0.6, label="charging (load)")
     ax.plot(x, dem_line, "k--", lw=1.0, label="demand")
+    if nd_line is not None:
+        ax.plot(x, nd_line, color="red", lw=1.2, label="net demand")
     if shade is not None:
         for s0, s1 in shade:
             ax.axvspan(s0, s1, color="gold", alpha=0.22, zorder=0)
@@ -135,17 +140,26 @@ def draw_stack(ax, te_rows, disp, dem_line, shade=None, title="", curt_solid=Non
 
 
 def pick_days(te, n=4, seed=42):
+    """Highest-median-demand run of n CONSECUTIVE complete test days (matches the
+    demand_simulation stack: a continuous multi-day span, not glued random days)."""
     days = te.index.normalize()
     full = [d for d in pd.unique(days) if (days == d).sum() == 288]
-    rng = np.random.default_rng(seed)
-    return sorted(rng.choice(len(full), n, replace=False)), full
+    dem = te["demand_mw"]
+    best, best_v = 0, -1.0
+    for i in range(len(full) - n + 1):
+        if (full[i + n - 1] - full[i]).days != n - 1:
+            continue                                     # not consecutive calendar days
+        med = np.median([dem[days == full[i + k]].mean() for k in range(n)])
+        if med > best_v:
+            best, best_v = i, med
+    return list(range(best, best + n)), full
 
 
 def deliverable_a(te, feat_cols, xm, xs_, ym, ys_, sfx):
     pick, full = pick_days(te)
     rng = np.random.default_rng(7)
     for arm in ARMS:
-        p = OUT / f"{arm}{sfx}.pt"
+        p = WEIGHTS / f"{arm}{sfx}.pt"
         if not p.exists():
             print(f"[A] skip {arm} (no weights)"); continue
         model = BiLSTMImputer(n_features=len(feat_cols))
@@ -175,7 +189,7 @@ def deliverable_a(te, feat_cols, xm, xs_, ym, ys_, sfx):
         ax[1].set_xticks([k * 288 for k in range(len(pick))])
         ax[1].set_xticklabels([str(full[di].date()) for di in pick])
         ax[0].legend(loc="upper left", ncol=6, fontsize=7, framealpha=0.9)
-        fig.suptitle(f"plan1 A — actual vs predicted, {arm}, 4 random test days, random 3h gaps")
+        fig.suptitle(f"plan1 A — actual vs predicted, {arm}, 4 consecutive test days, random 3h gap/day")
         fig.tight_layout()
         fp = OUT / f"figA_{arm}{sfx}.png"
         fig.savefig(fp, dpi=140); plt.close(fig)
@@ -208,21 +222,21 @@ def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
               "solar_curtailment": np.where(fr, 0.0, rows["solar_curtailment"].values)}
         return ov
 
-    # shared actual stack
     rows_all = np.concatenate([np.where(te.index.normalize() == full[di])[0] for di in pick])
     shade = [(off * 288 + FREE[0] * 12, off * 288 + FREE[1] * 12) for off in range(len(pick))]
-    fig, ax = plt.subplots(figsize=(16, 4.8))
-    draw_stack(ax, te.iloc[rows_all], te.iloc[rows_all][TARGETS].values.astype(np.float64),
-               te.iloc[rows_all]["demand_mw"].values, shade, "actual (free window shaded)")
-    ax.legend(loc="upper left", ncol=6, fontsize=7, framealpha=0.9)
-    ax.set_xticks([k * 288 for k in range(len(pick))])
-    ax.set_xticklabels([str(full[di].date()) for di in pick])
-    fig.suptitle("plan1 B — actual")
-    fig.tight_layout(); fig.savefig(OUT / f"cf_actual{sfx}.png", dpi=140); plt.close(fig)
-    print("[B] wrote", OUT / f"cf_actual{sfx}.png")
+    act_disp = te.iloc[rows_all][TARGETS].values.astype(np.float64)
+    nd_act = te.iloc[rows_all]["net_demand"].values      # demand-side actual net demand (red line)
+    nd_cf = nd_feat_cf[rows_all]                          # counterfactual net demand seen by the model
+
+    def finish(ax_bottom, fig, fp):
+        for a in fig.axes:
+            a.set_xticks([k * 288 for k in range(len(pick))])
+            a.set_xticklabels([str(full[di].date()) for di in pick])
+        fig.axes[0].legend(loc="upper left", ncol=6, fontsize=7, framealpha=0.9)
+        fig.tight_layout(); fig.savefig(fp, dpi=140); plt.close(fig)
 
     for arm in ARMS:
-        p = OUT / f"{arm}{sfx}.pt"
+        p = WEIGHTS / f"{arm}{sfx}.pt"
         if not p.exists():
             print(f"[B] skip {arm} (no weights)"); continue
         model = BiLSTMImputer(n_features=len(feat_cols))
@@ -230,7 +244,7 @@ def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
         model.eval()
         size_aware = arm == "size_aware"
         for mode in ("scaled", "masked"):
-            days_out, viol = [], {"bal>1MW": 0, "ramp": 0, "neg": 0}
+            days_out, viol = [], {"bal>1MW": 0, "ramp": 0, "neg": 0, "SOC": 0}
             for di in pick:
                 day_rows = np.where(te.index.normalize() == full[di])[0]
                 truth_day = te.iloc[day_rows][TARGETS].values.astype(np.float64)
@@ -249,36 +263,39 @@ def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
                     ctx_disp[k] = day_disp[pos[0]] if len(pos) else te.iloc[r][TARGETS].values
                 fill, pL, pR = model_fill(model, te, feat_cols, xm, xs_, ym, ys_,
                                           rows, overrides(span), ctx_disp)
-                P = rayen(fill, pL, pR, nd_bal_cf[rows], size_aware)
+                P = rayen(fill, pL, pR, nd_bal_cf[rows], size_aware, soc=True)   # SOC ON (plan)
                 day_disp[g0:g0 + GAP] = P
                 days_out.append(day_disp)
                 viol["bal>1MW"] += int((np.abs((P * SIGN).sum(-1) - nd_bal_cf[rows]) > 1.0).sum())
                 d = np.diff(np.vstack([pL[None], P, pR[None]]), axis=0)
                 viol["ramp"] += int(((d > C.R_UP + 0.6) | (d < -(C.R_DN + 0.6))).sum())
                 viol["neg"] += int((P < -0.1).sum())
+                viol["SOC"] += int(C._soc_swing_mwh(P) > C.BATT_CAP_MWH + 1e-6)
             disp = np.concatenate(days_out)
-            fig, ax = plt.subplots(figsize=(16, 4.8))
             title = ("scaled before/after — off-window x nd_after/nd_before, window model-filled"
                      if mode == "scaled" else
                      "actual + masked window — off-window actual, window model-filled")
-            draw_stack(ax, te.iloc[rows_all], disp, dem_s[rows_all], shade,
-                       f"{title}  [{arm}]  (rebound {Q:g}%, reduce {Q:g}%)",
-                       curt_solid=free_all[rows_all])
-            ax.legend(loc="upper left", ncol=6, fontsize=7, framealpha=0.9)
-            ax.set_xticks([k * 288 for k in range(len(pick))])
-            ax.set_xticklabels([str(full[di].date()) for di in pick])
-            fig.suptitle(f"plan1 B — counterfactual ({mode}), {arm}")
-            fig.tight_layout()
+            fig, ax = plt.subplots(2, 1, figsize=(16, 9), sharex=True, sharey=True)
+            draw_stack(ax[0], te.iloc[rows_all], act_disp, te.iloc[rows_all]["demand_mw"].values,
+                       shade, "actual (free window shaded; red = net demand)", nd_line=nd_act)
+            draw_stack(ax[1], te.iloc[rows_all], disp, dem_s[rows_all], shade,
+                       f"counterfactual — {title}  [{arm}]  (rebound {Q:g}%, reduce {Q:g}%)",
+                       curt_solid=free_all[rows_all], nd_line=nd_cf)
+            fig.suptitle(f"plan1 B — {arm}, {mode}: actual vs counterfactual")
             fp = OUT / f"cf_{mode}_{arm}{sfx}.png"
-            fig.savefig(fp, dpi=140); plt.close(fig)
+            finish(ax[1], fig, fp)
             print(f"[B] wrote {fp}   violations {viol}")
 
 
 def main():
+    global OUT
     ap = argparse.ArgumentParser()
     ap.add_argument("--which", nargs="+", default=["a", "b"], choices=["a", "b"])
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--out", default=None, help="output dir for figures (default results/plan1)")
     args = ap.parse_args()
+    if args.out:
+        OUT = Path(args.out)
     sfx = "_smoke" if args.smoke else ""
     te, feat_cols, xm, xs_, ym, ys_ = load_test()
     OUT.mkdir(parents=True, exist_ok=True)
