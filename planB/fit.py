@@ -23,6 +23,7 @@ DELIBERATELY SIMPLE, per the planB brief:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -148,12 +149,32 @@ def main():
     ap.add_argument("--hidden", type=int, default=192)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--compile", action="store_true",
+                    help="torch.compile the BACKBONE only. The constraint heads are "
+                         "left eager: they carry data-dependent control flow (a "
+                         "36-step sweep with a 40-step bisection inside) that either "
+                         "graph-breaks or produces a huge unrolled graph. Helps SAITS "
+                         "and BRITS most, nn.LSTM least (cuDNN is already fused).")
+    ap.add_argument("--amp", action="store_true",
+                    help="bf16 autocast around the BACKBONE only; the head always runs "
+                         "in fp32. Running the head in bf16 would put the balance "
+                         "residual around 1e-2 relative -- tens of MW on a 5 GW stack "
+                         "-- which destroys the exactness the layer exists for.")
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
     if args.smoke:
         args.n_train, args.n_val, args.batch = 1024, 256, 64
     torch.manual_seed(args.seed); np.random.seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if dev == "cuda":
+        # TF32 is safe here: the heads are elementwise (clamp/add/mul/sum), not
+        # matmul, so the exact arithmetic is untouched. Only the backbone gemms
+        # are affected.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        print(f"gpu: {torch.cuda.get_device_name(0)}  "
+              f"tf32 on  amp={args.amp}  compile={args.compile}", flush=True)
     backbone, head_name, gap = ARMS[args.arm]
     head_fn, n_disp = HEADS[head_name]
     # the rayen head consumes a DIRECTION, not a dispatch level, so the interp
@@ -178,44 +199,58 @@ def main():
     print(f"windows: train {len(tr['X']):,} val {len(va['X']):,} "
           f"({time.time()-t0:.0f}s)", flush=True)
 
+    # Move the whole window set to the device ONCE. 40k x 132 x 21 float32 is
+    # ~450 MB, trivial on an A100, and it removes a host-to-device copy per batch
+    # -- which is the actual bottleneck at large batch, not the matmuls.
+    def to_dev(dd):
+        return {k: (torch.from_numpy(v).to(dev) if isinstance(v, np.ndarray)
+                    and v.ndim > 1 else v) for k, v in dd.items()}
+    tr, va = to_dev(tr), to_dev(va)
+
     ys_m = torch.tensor(f.y_mean, dtype=torch.float32, device=dev)
     ys_s = torch.tensor(f.y_scale, dtype=torch.float32, device=dev)
     c_m = torch.tensor(tr["c_mean"], device=dev)
     c_s = torch.tensor(tr["c_scale"], device=dev)
+    if args.compile:
+        model = torch.compile(model)
+        print("  backbone compiled (first batch will be slow)", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     rng = np.random.default_rng(args.seed)
 
+    amp_ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if args.amp and dev == "cuda"
+               else contextlib.nullcontext())
+
     def forward(b):
-        x = torch.from_numpy(b["X"]).to(dev)
-        mk = torch.from_numpy(b["mask"]).to(dev)
+        x, mk = b["X"], b["mask"]
         dl = build_delta(mk, x.shape[-1]) if backbone == "brits" else None
-        d_raw, c_raw = model(x, mk, dl)
-        d_raw, c_raw = d_raw[:, CTX:CTX + gap], c_raw[:, CTX:CTX + gap]
+        with amp_ctx:                                  # BACKBONE only
+            d_raw, c_raw = model(x, mk, dl)
+        d_raw = d_raw[:, CTX:CTX + gap].float()        # back to fp32 for the head
+        c_raw = c_raw[:, CTX:CTX + gap].float()
         curt = curt_activation(c_raw, c_m, c_s)
         if residual:                       # deviation from the interp skeleton
-            d_raw = d_raw + torch.from_numpy(b["interp"]).to(dev)
+            d_raw = d_raw + b["interp"]
         if head_fn is None:
             return d_raw[..., :6], curt
         F_ = (d_raw * ys_s + ys_m if n_disp == 6 else
               torch.cat([d_raw[..., :6] * ys_s + ys_m, d_raw[..., 6:]], -1))
-        P = head_fn(F_, torch.from_numpy(b["pL"]).to(dev),
-                    torch.from_numpy(b["pR"]).to(dev),
-                    torch.from_numpy(b["nd"]).to(dev))
+        P = head_fn(F_, b["pL"], b["pR"], b["nd"])
         return (P - ys_m) / ys_s, curt
 
     def loss_of(b):
         pz, cmw = forward(b)
-        yz = torch.from_numpy(b["Y"]).to(dev)
+        yz = b["Y"]
         cz_p = (cmw - c_m) / c_s
-        cz_t = (torch.from_numpy(b["C"]).to(dev) - c_m) / c_s
+        cz_t = (b["C"] - c_m) / c_s
         # ONE MSE over all eight z-scored channels
         return ((torch.cat([pz - yz, cz_p - cz_t], -1)) ** 2).mean()
 
     def val():
         model.eval(); s = n = 0.0
         with torch.no_grad():
-            for i in range(0, len(va["X"]), 128):
-                b = {k: (v[i:i + 128] if isinstance(v, np.ndarray) and v.ndim > 1 else v)
+            vb = max(256, args.batch)
+            for i in range(0, len(va["X"]), vb):
+                b = {k: (v[i:i + vb] if torch.is_tensor(v) and v.dim() > 1 else v)
                      for k, v in va.items()}
                 s += float(loss_of(b)) * len(b["X"]); n += len(b["X"])
         model.train(); return s / n
@@ -225,10 +260,11 @@ def main():
     best, best_state, waited = float("inf"), None, 0
     print(f"  val before training: {val():.4f}", flush=True)
     for ep in range(1, args.epochs + 1):
-        te0 = time.time(); perm = rng.permutation(len(tr["X"])); s = n = 0.0
+        te0 = time.time(); s = n = 0.0
+        perm = torch.from_numpy(rng.permutation(len(tr["X"]))).to(dev)
         for i in range(0, len(perm), args.batch):
             j = perm[i:i + args.batch]
-            b = {k: (v[j] if isinstance(v, np.ndarray) and v.ndim > 1 else v)
+            b = {k: (v[j] if torch.is_tensor(v) and v.dim() > 1 else v)
                  for k, v in tr.items()}
             l = loss_of(b)
             opt.zero_grad(); l.backward(); opt.step()
@@ -240,7 +276,7 @@ def main():
         stop = False
         if v < best - 1e-6:
             best, waited = v, 0
-            best_state = {k: t.detach().cpu().clone()
+            best_state = {k: t.detach().clone()
                           for k, t in model.state_dict().items()}
         else:
             waited += 1
@@ -259,8 +295,10 @@ def main():
 
     if best_state is not None:
         model.load_state_dict(best_state)
+    sd = model.state_dict()
+    sd = {k.replace("_orig_mod.", ""): v for k, v in sd.items()}   # undo compile wrap
 
-    torch.save({"state": model.state_dict(), "arm": args.arm, "head": head_name,
+    torch.save({"state": sd, "arm": args.arm, "head": head_name,
                 "backbone": backbone, "gap": gap, "residual": residual,
                 "hidden": args.hidden, "n_disp": n_disp}, OUT / f"{tag}.pt")
     print(f"\nbest val {best:.4f} -> wrote {OUT/f'{tag}.pt'}")
