@@ -148,6 +148,17 @@ def main():
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--hidden", type=int, default=192)
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--loss", default="mse", choices=["mse", "sum_mw", "wape"],
+                    help="mse    (default) mean squared error over all 8 channels "
+                         "AFTER z-scoring each by its own scaler. Note this is "
+                         "identical to 'sum of the per-source MSEs' up to a factor "
+                         "of 8, so that is not a separate option. | "
+                         "sum_mw  per-source MSE in RAW MW, summed. No z-scoring, so "
+                         "channels are weighted by scale^2 and coal (scale 681) "
+                         "swamps battery (52) by ~170x. | "
+                         "wape   per-source sum|err|/sum|truth| in MW, meaned. Matches "
+                         "the reported metric, so no channel is down-weighted for "
+                         "being small.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--compile", action="store_true",
                     help="torch.compile the BACKBONE only. The constraint heads are "
@@ -180,7 +191,8 @@ def main():
     # the rayen head consumes a DIRECTION, not a dispatch level, so the interp
     # residual has no meaning there -- its anchor already plays that role.
     residual = (not args.no_residual) and n_disp == 6
-    tag = args.arm + ("_smoke" if args.smoke else "")
+    tag = (args.arm + ("" if args.loss == "mse" else f"_{args.loss}")
+           + ("_smoke" if args.smoke else ""))
 
     f = load_flats()
     nfeat = len(f.feat_cols)
@@ -194,7 +206,7 @@ def main():
         model = BACKBONES[backbone](nfeat, TARGET_FEAT_IDX, CURT_COLS, n_disp,
                                     hidden=args.hidden).to(dev)
     print(f"arm={args.arm}  backbone={backbone}  head={head_name}  gap={gap}  "
-          f"residual={residual}  outputs={n_disp}  hidden={args.hidden}  "
+          f"residual={residual}  loss={args.loss}  outputs={n_disp}  hidden={args.hidden}  "
           f"params={n_params(model):,}  device={dev}", flush=True)
     print(f"windows: train {len(tr['X']):,} val {len(va['X']):,} "
           f"({time.time()-t0:.0f}s)", flush=True)
@@ -237,13 +249,30 @@ def main():
         P = head_fn(F_, b["pL"], b["pR"], b["nd"])
         return (P - ys_m) / ys_s, curt
 
+    all_scale = torch.cat([ys_s, c_s])           # (8,) MW per z-unit
+    all_mean = torch.cat([ys_m, c_m])
+
     def loss_of(b):
         pz, cmw = forward(b)
-        yz = b["Y"]
         cz_p = (cmw - c_m) / c_s
-        cz_t = (b["C"] - c_m) / c_s
-        # ONE MSE over all eight z-scored channels
-        return ((torch.cat([pz - yz, cz_p - cz_t], -1)) ** 2).mean()
+        pred_z = torch.cat([pz, cz_p], -1)                       # (B,G,8) z
+        true_z = torch.cat([b["Y"], (b["C"] - c_m) / c_s], -1)
+        if args.loss == "mse":
+            # one MSE over all eight z-scored channels. Identical to summing the
+            # per-source MSEs up to a factor of 8, which Adam absorbs.
+            return ((pred_z - true_z) ** 2).mean()
+        err_mw = (pred_z - true_z) * all_scale                   # back to MW
+        if args.loss == "sum_mw":
+            # per-source MSE in MW, summed: channels weighted by scale^2, so coal
+            # dominates battery ~170x. This is what "sum the per-source errors"
+            # means if you do NOT normalise first.
+            return (err_mw ** 2).mean((0, 1)).sum()
+        # wape: each source scored against its own total, so a 50 MW battery error
+        # and a 700 MW coal error are comparable
+        true_mw = true_z * all_scale + all_mean
+        num = err_mw.abs().sum((0, 1))
+        den = true_mw.abs().sum((0, 1)).clamp_min(1.0)
+        return (num / den).mean()
 
     def val():
         model.eval(); s = n = 0.0
@@ -288,7 +317,8 @@ def main():
         # persist every epoch so a dropped Colab session loses at most one
         (OUT / f"{tag}_history.json").write_text(json.dumps(
             {"arm": args.arm, "backbone": backbone, "head": head_name,
-             "gap": gap, "residual": residual, "params": n_params(model),
+             "gap": gap, "residual": residual, "loss": args.loss,
+             "params": n_params(model),
              "best_val": best, "epochs_run": ep, **hist}, indent=1))
         if stop:
             break
@@ -300,6 +330,7 @@ def main():
 
     torch.save({"state": sd, "arm": args.arm, "head": head_name,
                 "backbone": backbone, "gap": gap, "residual": residual,
+                "loss": args.loss,
                 "hidden": args.hidden, "n_disp": n_disp}, OUT / f"{tag}.pt")
     print(f"\nbest val {best:.4f} -> wrote {OUT/f'{tag}.pt'}")
 
