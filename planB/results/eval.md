@@ -1,0 +1,46 @@
+# planB — per-channel MAE / MRE, 400 random test 3h gaps (seed 123)
+
+All arms: 1 epoch, hidden 192, one MSE over 8 z-scored channels, relu in z-space for curtailment, split output heads, no curtailment credit, **p99 ramp envelope**.
+
+| arm | backbone | head | params |
+| --- | --- | --- | ---: |
+| interp | — | — | 0 |
+| unconstrained | BiLSTM | none | 1,222,664 |
+| rayen | BiLSTM | rayen | 1,223,049 |
+| hardnet | BiLSTM | hardnet | 1,222,664 |
+| brits | BRITS | hardnet | 382,704 |
+
+## MAE (MW)
+
+| arm | hydro | coal | steam | ocgt | bat_chg | bat_dis | wind_cu | sol_cu | disp agg | curt agg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| interp | 63.4 | 85.8 | 2.0 | 15.0 | 64.7 | 72.5 | 61.2 | 24.7 | **50.6** | **43.0** |
+| unconstrained | 95.6 | 161.4 | 17.7 | 48.9 | 87.3 | 73.6 | 108.8 | 45.0 | **80.7** | **76.9** |
+| rayen | 65.3 | 142.2 | 45.5 | 34.8 | 55.8 | 54.9 | 114.1 | 38.8 | **66.4** | **76.4** |
+| hardnet | 105.8 | 169.6 | 15.3 | 52.6 | 86.4 | 78.0 | 102.4 | 40.9 | **84.6** | **71.6** |
+| brits | 156.7 | 234.0 | 46.3 | 87.4 | 84.4 | 69.7 | 167.9 | 72.5 | **113.1** | **120.2** |
+
+## MRE (%)
+
+| arm | hydro | coal | steam | ocgt | bat_chg | bat_dis | wind_cu | sol_cu |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| interp | 20.7 | 2.4 | 21.6 | 15.0 | 47.7 | 62.8 | 25.6 | 31.0 |
+| unconstrained | 31.2 | 4.4 | 191.6 | 48.8 | 64.3 | 63.7 | 45.5 | 56.4 |
+| rayen | 21.3 | 3.9 | 492.6 | 34.7 | 41.1 | 47.5 | 47.7 | 48.6 |
+| hardnet | 34.5 | 4.7 | 165.9 | 52.5 | 63.7 | 67.5 | 42.8 | 51.2 |
+| brits | 51.1 | 6.4 | 501.6 | 87.2 | 62.2 | 60.3 | 70.1 | 90.9 |
+
+_MRE is unreliable where the truth is mostly zero. Share of gap cells at or below 1 MW: hydro 33%, coal 0%, steam 96%, ocgt 75%, bat_chg 7%, bat_dis 30%, wind_cu 56%, sol_cu 66%._
+
+## Feasibility against the p99.9 envelope
+
+| arm | balance (MW) | ramp overshoot (MW) | below zero (MW) | above cap (MW) |
+| --- | ---: | ---: | ---: | ---: |
+| interp | 1,502.19 | 0.00 | 0.00 | 0.00 |
+| unconstrained | 1,370.24 | 877.53 | 114.92 | 6.46 |
+| rayen | 0.00 | 0.00 | 0.00 | 0.00 |
+| hardnet | 119.31 | 0.00 | 0.00 | 0.00 |
+| brits | 63.13 | 0.00 | 0.00 | 0.00 |
+
+_`interp` is a straight line between the pinned boundaries, so its per-step change is (pR-pL)/37 and it cannot break a ramp limit unless bridge feasibility fails -- which it does not on any of these windows. The constrained arms' balance residual is the shortfall where nd is not attainable inside the tightened box, not a solver error; the feasibility floor at p99.9 is 0.21 MW MAE and 12.8 MW worst balance._
+

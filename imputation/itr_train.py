@@ -54,7 +54,7 @@ def to_dev(b, device):
     return out
 
 
-def deployed_gap_mw(model, b, f, device, constraint):
+def deployed_gap_mw(model, b, f, device, constraint, size_aware=False):
     """(B,glen,6) MW gap trajectory through the arm's DEPLOYED map: the rayen
     ray-shoot for the rayen arm, the raw fill otherwise (C0/C1 deploy raw; the
     posthoc projection is the separate C2 row, applied in itr_bench)."""
@@ -65,18 +65,18 @@ def deployed_gap_mw(model, b, f, device, constraint):
     G = gap_slice(out, b["g0"], b["glen"]) * ys + ym             # MW
     if constraint == "rayen":
         G = rayen_traj_project(G, tb["pL"].to(G.dtype), tb["pR"].to(G.dtype),
-                               tb["nd"].to(G.dtype))
+                               tb["nd"].to(G.dtype), size_aware=size_aware)
     return G
 
 
-def val_gap_mae(model, f, split, rec, device, constraint, batch=256):
+def val_gap_mae(model, f, split, rec, device, constraint, batch=256, size_aware=False):
     """Mean |pred - truth| MW over gap cells, through the deployed map."""
     model.eval()
     tot = n = 0.0
     with torch.no_grad():
         for glen, idx in D.glen_groups(rec, batch):
             b = D.build_batch(f, split, rec, idx)
-            G = deployed_gap_mw(model, b, f, device, constraint)
+            G = deployed_gap_mw(model, b, f, device, constraint, size_aware)
             ys = torch.tensor(f.y_scale, dtype=torch.float32, device=device)
             ym = torch.tensor(f.y_mean, dtype=torch.float32, device=device)
             truth = gap_slice(torch.from_numpy(b["Y"]).to(device), b["g0"], glen) * ys + ym
@@ -97,6 +97,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--size-aware", action="store_true", help="size-aware balance split in the rayen map")
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
 
@@ -107,6 +108,8 @@ def main():
         n_val_es, n_val_blk = 96, 32
     stem = f"itr_{args.arm}" + {"none": "", "soft": f"_soft{args.lam:g}",
                                 "rayen": "_rayen"}[args.constraint]
+    if args.size_aware:
+        stem += "_sa"
     if args.smoke:
         stem += "_smoke"
     out_path = Path(args.out) if args.out else OUT / f"{stem}.pt"
@@ -150,12 +153,12 @@ def main():
                 if args.constraint == "soft":
                     loss = loss + args.lam * soft_penalty(G, nd, pL, pR)
                 else:                                            # rayen: train INSIDE the map
-                    Gp = rayen_traj_project(G, pL, pR, nd)
+                    Gp = rayen_traj_project(G, pL, pR, nd, size_aware=args.size_aware)
                     truth = gap_slice(tb["Y"], b["g0"], glen) * ys + ym
                     loss = loss + ((Gp - truth).abs() / ys.mean()).mean()
             opt.zero_grad(); loss.backward(); opt.step()
             tot += float(loss.detach()) * len(idx); nb += len(idx)
-        vw = val_gap_mae(model, f, "val", va_es, device, args.constraint)
+        vw = val_gap_mae(model, f, "val", va_es, device, args.constraint, size_aware=args.size_aware)
         hist.append(vw)
         stop = False
         if vw < best - 1e-4:
@@ -171,7 +174,7 @@ def main():
 
     if best_state:
         model.load_state_dict(best_state)
-    blk = val_gap_mae(model, f, "val", va_blk, device, args.constraint)
+    blk = val_gap_mae(model, f, "val", va_blk, device, args.constraint, size_aware=args.size_aware)
     OUT.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out_path)
     meta = {"arm": args.arm, "constraint": args.constraint,

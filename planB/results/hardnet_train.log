@@ -1,0 +1,12 @@
+arm=hardnet  head=hardnet  dispatch outputs=6  hidden=192  params=1,222,664  device=cpu
+windows: train 40,000 val 2,000 (1s)
+  val before training: 7.2366
+    batch    0/312 loss 2.9495
+    batch   60/312 loss 0.4058
+    batch  120/312 loss 0.3535
+    batch  180/312 loss 0.3455
+    batch  240/312 loss 0.3030
+    batch  300/312 loss 0.2358
+  ep001 train 0.4088  val 2.1927  (243s)
+
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/planB/results/hardnet.pt

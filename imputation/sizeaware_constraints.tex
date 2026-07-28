@@ -1,0 +1,387 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,bm}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{booktabs}
+
+\title{The RAYEN head on the BiLSTM gap imputer\\
+\large size-aware balance split, as implemented}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{What it is}
+
+The imputer is a bidirectional LSTM whose output passes through a fixed,
+non-learned, differentiable map before the loss is taken. The map is a RAYEN
+head, generalised from a single timestep to the whole gap trajectory.
+
+\paragraph{Pipeline.}
+\begin{align*}
+\mathbf{D} &= \mathrm{Linear}_{256\to 6}\bigl(\mathrm{BiLSTM}(x,\ \mathrm{mask})\bigr)
+ && \text{network output, standardised units}\\
+\mathbf{F} &= (\mathbf{I}+\mathbf{D})\odot\bm{\sigma}_y+\bm{\mu}_y
+ && \text{raw fill in MW; generally infeasible}\\
+\mathbf{P} &= \mathrm{RayenHead}(\mathbf{F})
+ && \text{feasible output}\\
+\mathcal{L} &= \mathrm{MSE}(\mathbf{P},\mathbf{Y})
+ && \text{loss on the \emph{mapped} output}
+\end{align*}
+
+Three facts about the head:
+\begin{itemize}
+\item It has \textbf{no learnable parameters}. It is a fixed map.
+\item In the code it is \textbf{not} inside \texttt{BiLSTMImputer}.
+      \texttt{model.py} returns the raw $\mathbf{D}$; the caller applies the map
+      (\texttt{plan1\_train.py:66} in training, \texttt{plan1\_bench.py:66} at eval).
+\item It acts on the \textbf{whole $36\times6$ trajectory at once}, not per
+      timestep. One scalar step length governs all $216$ numbers. This is the
+      difference from a single-step RAYEN head, and it is what makes the head
+      behave conservatively in practice (Section \ref{sec:measured}).
+\end{itemize}
+
+\paragraph{The idea in one sentence.}
+The head starts from a trajectory that is guaranteed feasible, walks toward the
+one the network asked for, and stops at the first physical limit.
+
+\section{Notation}
+
+\begin{center}
+\begin{tabular}{llp{7.6cm}}
+\toprule
+symbol & type & meaning \\
+\midrule
+\multicolumn{3}{l}{\emph{sizes and indices}}\\
+$N$ & $=36$ & unknown steps in the gap (3 h at 5 min) \\
+$K$ & $=6$ & dispatch channels \\
+$t$ & $1..N$ & step index inside the gap \\
+$i$ & $1..K$ & channel index \\
+$j$ & $1..N{+}1$ & index over consecutive differences (includes both seams) \\
+\midrule
+\multicolumn{3}{l}{\emph{known inputs to the head}}\\
+$\mathbf{p}^{L},\mathbf{p}^{R}$ & $\mathbb{R}^{K}$ & true dispatch one step before / after the gap (MW), held pinned \\
+$nd_t$ & $\mathbb{R}$ & balance target at step $t$ (MW); see note below \\
+$\mathbf{c}$ & $\mathbb{R}^{K}$ & per-channel cap (MW) \\
+$\bm{\rho}^{+},\bm{\rho}^{-}$ & $\mathbb{R}^{K}_{\ge0}$ & up / down ramp limit per 5-min step (MW), stored positive \\
+$\mathbf{s}$ & $\mathbb{R}^{K}$ & balance signs $(1,1,1,1,-1,1)^{\!\top}$; charging is a load. Note $s_i^2=1$ \\
+\midrule
+\multicolumn{3}{l}{\emph{trajectories, all $\mathbb{R}^{N\times K}$ in MW}}\\
+$\mathbf{I}$ & & straight interpolation from $\mathbf{p}^{L}$ to $\mathbf{p}^{R}$ \\
+$\mathbf{F}$ & & raw fill: what the network asked for. Infeasible in general \\
+$\mathbf{A}$ & & \textbf{anchor}: the guaranteed-feasible fallback \\
+$\mathbf{r}$ & & \textbf{direction}: $\mathbf{F}-\mathbf{A}$, flattened so it preserves balance \\
+$\mathbf{P}$ & & \textbf{the head's output}. Satisfies every constraint, so $\mathbf{s}^{\!\top}\mathbf{P}_t=nd_t$ exactly \\
+$\mathbf{X}$ & & the \emph{iterate} inside the Step-1 repair loop. Starts at $\mathbf{I}$, ends at $\mathbf{A}$. Infeasible in between. Not the output \\
+$\mathbf{w}$ & & size-aware weights, $w_{t,i}=|\cdot|+1$ \\
+\midrule
+\multicolumn{3}{l}{\emph{step length}}\\
+$\alpha$ & $\mathbb{R}$ & position along the ray. $\alpha=0$ gives $\mathbf{A}$; $\alpha=1$ gives $\mathbf{A}+\mathbf{r}$, the network's request \emph{after} balance correction. Note $\mathbf{A}+\mathbf{r}\neq\mathbf{F}$ unless $\mathbf{F}$ already balanced \\
+$\alpha^{\star}$ & $[0,1]$ & \textbf{the chosen step length}: how far the head actually walks. Set by box and ramp only, never by balance \\
+$\alpha_{\mathrm{hi}},\alpha_{\mathrm{lo}}$ & $\mathbb{R}$ & largest $\alpha$ before hitting the upper / lower box wall \\
+$\alpha_{\mathrm{up}},\alpha_{\mathrm{dn}}$ & $\mathbb{R}$ & largest $\alpha$ before hitting the up / down ramp wall \\
+$\alpha_{\mathrm{soc}}$ & $\mathbb{R}$ & same for the battery-energy wall (available, off by default) \\
+\midrule
+\multicolumn{3}{l}{\emph{other}}\\
+$\delta_t$ & $\mathbb{R}$ & balance residual of the \emph{iterate}, $nd_t-\mathbf{s}^{\!\top}\mathbf{X}_t$. Nonzero during Step 1, zero once converged \\
+$M$ & $\mathbb{N}$ & anchor refinement cycles: $40$ in training, $160$ at eval \\
+$\bm{\mu}_y,\bm{\sigma}_y$ & $\mathbb{R}^{K}$ & target scaler mean / scale \\
+$\odot$ & & elementwise product \\
+$\eta,\Delta t,C_{\mathrm{eff}}$ & & $\sqrt{0.834}$, $1/12$ h, $4535.75$ MWh: battery constants \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Which $nd$.} Two different quantities are called net demand.
+The \emph{network input} is demand-side,
+$\text{demand}-\text{wind}-\text{solar}-\text{curtailments}$ (feature column 6).
+The \emph{head's balance target} $nd_t$ is supply-side,
+$nd_t=\mathbf{s}^{\!\top}\mathbf{P}^{\text{true}}_t$
+(\texttt{plan1\_train.supply\_nd}; \texttt{gw.truth\_mw @ SIGN} at eval). They
+differ by the interconnector, mean $\pm500$ MW. The supply-side value is used
+because it is attainable by six fuels; the demand-side one is not.
+
+\section{The head, in four steps}
+
+\subsection*{Step 1 --- the fallback $\mathbf{A}$}
+
+Take the straight line between the pinned boundaries,
+$\mathbf{I}_t=\mathbf{p}^{L}+\tfrac{t}{N+1}(\mathbf{p}^{R}-\mathbf{p}^{L})$, and
+repair it into feasibility by cycling three projections $M$ times:
+\begin{equation}
+\mathbf{X}\ \leftarrow\ \Pi_{\mathrm{box}}\bigl(\Pi_{\mathrm{ramp}}(\Pi_{\mathrm{bal}}(\mathbf{X}))\bigr),
+\qquad \mathbf{X}^{(0)}=\mathbf{I},
+\qquad \mathbf{A}=\mathbf{X}^{(M)} .
+\end{equation}
+$\mathbf{X}$ is the \emph{iterate}, and it is infeasible until the loop settles.
+This matters for reading Section \ref{sec:sizeaware}: the balance operator's
+argument is $\mathbf{X}$, not the head's output $\mathbf{P}$, so its residual
+$\delta_t$ is genuinely nonzero. It is what the operator exists to remove.
+\begin{itemize}
+\item $\Pi_{\mathrm{bal}}$: snap the signed sum onto $nd_t$ (Section \ref{sec:sizeaware}).
+\item $\Pi_{\mathrm{ramp}}$: one forward clamp from $\mathbf{p}^{L}$, one backward clamp from $\mathbf{p}^{R}$.
+\item $\Pi_{\mathrm{box}}$: clip to $[0,c_i]$.
+\item $\Pi_{\mathrm{soc}}$: scale both battery channels to fit the pack. \textbf{Off} on this path.
+\end{itemize}
+$\mathbf{A}$ is built from $\mathbf{p}^{L},\mathbf{p}^{R},nd$ only. It does not
+see the network and carries no gradient.
+
+\paragraph{Why $M$ is large.} $\Pi_{\mathrm{bal}}$ drives $\delta$ to zero in one
+shot, but $\Pi_{\mathrm{ramp}}$ and $\Pi_{\mathrm{box}}$ then move the numbers
+again and break balance, so the next cycle starts from a fresh nonzero
+$\delta$. The three operators settle against each other slowly. On the hardest
+of 60 test windows, $\delta=\max_t|nd_t-\mathbf{s}^{\!\top}\mathbf{X}_t|$ at the
+end of each cycle runs:
+\begin{center}
+\begin{tabular}{lrrrrrrr}
+\toprule
+cycles $M$ & 0 & 1 & 5 & 20 & 40 & 80 & 160 \\
+\midrule
+$\delta$ (MW) & $602.0$ & $76.0$ & $61.9$ & $30.0$ & $12.1$ & $2.1$ & $0.061$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Training uses $M=40$ and eval uses $M=160$, which is where the $12.1$ MW
+train-time imbalance in Section \ref{sec:measured} comes from.
+
+\subsection*{Step 2 --- the direction $\mathbf{r}$}
+
+Walking from $\mathbf{A}$ straight at $\mathbf{F}$ would break balance, because
+$\mathbf{F}$ does not satisfy it. So first flatten the direction:
+\begin{equation}
+\mathbf{r}=\mathbf{F}-\mathbf{A},
+\qquad
+\mathbf{r}_t\ \leftarrow\ \mathbf{r}_t-\frac{\mathbf{s}^{\!\top}\mathbf{r}_t}{\sum_i w_{t,i}}\,(\mathbf{w}_t\odot\mathbf{s}),
+\qquad w_{t,i}=|A_{t,i}|+1 .
+\label{eq:tangent}
+\end{equation}
+After this, $\mathbf{s}^{\!\top}\mathbf{r}_t=0$ for every $t$: moving along
+$\mathbf{r}$ changes the mix but not the signed sum. The check is one line, using $s_i^2=1$:
+\[
+\mathbf{s}^{\!\top}\mathbf{r}_t-\frac{\mathbf{s}^{\!\top}\mathbf{r}_t}{\sum_i w_{t,i}}\sum_i w_{t,i}s_i^{2}=0 .
+\]
+The weights come from $\mathbf{A}$, not $\mathbf{F}$, so \eqref{eq:tangent} is a
+fixed linear operator and the gradient to the network is clean.
+
+\subsection*{Step 3 --- the step length $\alpha^{\star}$}
+
+\paragraph{What $\alpha^{\star}$ is not for.} Balance is already finished. Step 2
+made $\mathbf{s}^{\!\top}\mathbf{r}_t=0$, so
+$\mathbf{s}^{\!\top}(\mathbf{A}+\alpha\mathbf{r})_t=nd_t$ at \emph{every}
+$\alpha$, including $\alpha=1$. In particular $\mathbf{A}+\mathbf{r}$ meets
+demand exactly (measured: worst residual $9.2\times10^{-4}$ MW over 40 test
+windows). $\alpha^{\star}$ exists only because $\mathbf{A}+\mathbf{r}$ can still
+break the \emph{other} constraints: measured on the same windows it violates the
+box in $39/40$ windows by up to $1541$ MW and the ramp in $33/40$ by up to
+$2613$ MW. Step 3 is about box and ramp, nothing else.
+
+Along $\mathbf{y}(\alpha)=\mathbf{A}+\alpha\mathbf{r}$ each of those constraints
+is a straight line in $\alpha$, so each gives a simple ratio
+\emph{(slack at the anchor) / (rate of approach)}:
+\begin{align}
+\text{box:}\quad
+&\alpha_{\mathrm{hi}}=\min_{r_{t,i}>0}\frac{c_i-A_{t,i}}{r_{t,i}},
+&&\alpha_{\mathrm{lo}}=\min_{r_{t,i}<0}\frac{0-A_{t,i}}{r_{t,i}},
+\label{eq:wall-box}\\[3pt]
+\text{ramp:}\quad
+&\alpha_{\mathrm{up}}=\min_{\Delta r_{j,i}>0}\frac{\rho^{+}_i-\Delta A_{j,i}}{\Delta r_{j,i}},
+&&\alpha_{\mathrm{dn}}=\min_{\Delta r_{j,i}<0}\frac{-\rho^{-}_i-\Delta A_{j,i}}{\Delta r_{j,i}},
+\label{eq:wall-ramp}
+\end{align}
+where $\Delta\mathbf{A}=\mathrm{diff}([\mathbf{p}^{L};\mathbf{A};\mathbf{p}^{R}])$
+and $\Delta\mathbf{r}=\mathrm{diff}([\mathbf{0};\mathbf{r};\mathbf{0}])$ are the
+$N{+}1$ consecutive differences. Padding $\mathbf{r}$ with zeros says the head
+does not move the pinned boundaries, which is what puts both seams under the
+same ramp limit as the interior. Then
+\begin{equation}
+\boxed{\ \alpha^{\star}=\operatorname{clip}\bigl(\min(\alpha_{\mathrm{hi}},\alpha_{\mathrm{lo}},\alpha_{\mathrm{up}},\alpha_{\mathrm{dn}}),\ 0,\ 1\bigr)\ }
+\end{equation}
+The clip at $1$ stops the head overshooting past $\mathbf{F}$. The clip at $0$
+matters more than it looks; see Section \ref{sec:measured}.
+
+\subsection*{Step 4 --- the output}
+\begin{equation}
+\boxed{\ \mathbf{P}=\mathbf{A}+\alpha^{\star}\mathbf{r}\ }
+\end{equation}
+
+\section{What ``size-aware'' changes}
+\label{sec:sizeaware}
+
+Only one thing: how a balance correction is shared out across the six channels.
+
+\emph{Read $\mathbf{X}$ below as the mid-loop iterate, not the head's output.}
+Its residual $\delta_t=nd_t-\mathbf{s}^{\!\top}\mathbf{X}_t$ is nonzero (up to
+$602$ MW at $M=0$); the output $\mathbf{P}$ has $\delta_t=0$ by construction.
+The balance snap moves along $\mathbf{w}_t\odot\mathbf{s}$:
+\begin{equation}
+\Pi_{\mathrm{bal}}(\mathbf{X})_t=\mathbf{X}_t+\frac{\delta_t}{\sum_i w_{t,i}}\,(\mathbf{w}_t\odot\mathbf{s}),
+\label{eq:bal}
+\end{equation}
+which lands exactly on $nd_t$ for \emph{any} positive $\mathbf{w}$, by the same
+$s_i^2=1$ identity as before. The arms differ only in $\mathbf{w}$:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+arm & weights & effect \\
+\midrule
+\texttt{baseline}, \texttt{cost} & $w_{t,i}=1$ & every channel moves the same MW \\
+\texttt{size\_aware} & $w_{t,i}=|X_{t,i}|+1$ & each channel moves in proportion to its size \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Why it matters.} \texttt{gas\_steam} typically runs at single-digit
+MW. Under the equal split, a $600$ MW residual hands it $100$ MW, many times the
+channel's own output. Under the size-aware split, \texttt{coal\_brown}
+(thousands of MW) absorbs the bulk and \texttt{gas\_steam} moves a proportionate
+sliver. The $+1$ MW floor keeps $\mathbf{w}>0$ so \eqref{eq:bal} stays exact when
+a channel sits at zero.
+
+Geometrically, \eqref{eq:bal} is the oblique projection onto the balance
+hyperplane along $\mathbf{w}\odot\mathbf{s}$. Only $\mathbf{w}\equiv1$ is the
+orthogonal, minimum-norm projection; size-aware deliberately gives that up to
+keep the fuel mix ratios.
+
+\paragraph{Where the flag acts.} Two places, both inside the head: the anchor's
+balance snap in Step 1, and the tangent removal \eqref{eq:tangent} in Step 2.
+Nothing else in the model changes.
+
+\section{What is guaranteed}
+
+\begin{description}
+\item[Balance --- exact, at any $\alpha$.] $\mathbf{s}^{\!\top}\mathbf{r}_t=0$,
+      so $\mathbf{s}^{\!\top}\mathbf{P}_t=\mathbf{s}^{\!\top}\mathbf{A}_t$. The
+      output inherits the anchor's balance; the only error is the anchor's own
+      residual, which depends on $M$.
+\item[Box and ramp --- exact.] Each is a straight line in $\alpha$ and
+      $\alpha^{\star}$ is the smallest distance to any of them, so every
+      constraint holds on the whole segment $[0,\alpha^{\star}]$.
+\item[Differentiable.] $\mathbf{A}$ is constant, $\mathbf{r}$ is affine in
+      $\mathbf{F}$, $\alpha^{\star}$ is a min of smooth ratios. Gradients reach
+      the network through both $\mathbf{r}$ and $\alpha^{\star}$.
+\item[SOC --- not enforced.] The $\alpha_{\mathrm{soc}}$ wall exists in the code
+      but \texttt{soc=False} is the default and neither the training nor the
+      benchmark script overrides it. Measured slack on every test window anyway.
+\item[Conservative by design.] One scalar $\alpha^{\star}$ for all $N\times K$
+      cells. A single binding cell anywhere caps the entire trajectory.
+\end{description}
+
+\subsection*{The bias introduced by a single $\alpha^{\star}$}
+
+Sharing one step length across all $216$ cells is not neutral. It biases the
+head in three distinct ways.
+
+\paragraph{1. The head is invariant to the network's gain.} When a box wall
+binds, $\alpha_{\mathrm{lo}}=A_{t,i}/(-r_{t,i})$ at the binding cell, so
+\[
+\alpha^{\star}\,r_{t,i}=-A_{t,i}
+\qquad\text{independently of }\|\mathbf{r}\| .
+\]
+If the network doubles every output, $\mathbf{r}$ doubles, $\alpha^{\star}$
+halves, and the applied move $\alpha^{\star}\mathbf{r}$ is unchanged. The total
+movement is set by the anchor's slack at the tightest cell, not by anything the
+network asks for. The network can change the \emph{shape} of its deviation but
+not the \emph{amount}, and cannot learn to push harder.
+
+\paragraph{2. One channel's limit shrinks all six.} The binding cell is
+\texttt{battery\_discharging} in $30/40$ windows for \texttt{size\_aware}. That
+battery hitting its zero floor scales down the \texttt{coal\_brown},
+\texttt{hydro} and gas predictions by the identical factor. Nothing physical
+couples them; it is an artifact of the shared scalar.
+
+\paragraph{3. The gradient is throttled with the output.}
+$\partial\mathbf{P}/\partial\mathbf{F}$ carries a factor of order
+$\alpha^{\star}$, so the network trains at roughly $6\%$ signal. Visible in the
+histories: \texttt{baseline} ($\alpha^{\star}\!\approx\!0$) has a validation MSE
+spanning $0.041$ over 17 epochs, essentially flat because the network barely
+reaches the output, against $0.194$ for \texttt{size\_aware}.
+
+\paragraph{Counterpoint.} At present the throttle helps. Mean MAE against truth
+over 40 windows: anchor $\mathbf{A}$ $50.7$ MW, head output $\mathbf{P}$
+$56.4$ MW, but $\mathbf{A}+\mathbf{r}$ (the full request, $\alpha=1$)
+$491.4$ MW for \texttt{baseline} and $316.3$ MW for \texttt{size\_aware}. The
+network's balance-corrected request is far worse than the fallback, so a small
+$\alpha^{\star}$ is currently suppressing a bad network rather than a good one.
+Removing the throttle will make the numbers worse before it makes them better.
+
+\section{As implemented, and what it measures}
+\label{sec:measured}
+
+\paragraph{Configuration.} Anchor cycles $M=40$ in training,
+$M=160$ at eval; \texttt{soc=False} both; balance target supply-side; float32 in
+training, float64 at eval. The $M$ mismatch is real: at $M=40$ the output carries
+up to $12.1$ MW of balance residual, at $M=160$ it is $0.061$ MW. Reconstruction
+MAE is unaffected ($53.60$ vs $53.61$).
+
+\paragraph{Feasibility of the trained \texttt{size\_aware} output}
+(60 test 3-h gaps, $M=160$): worst balance residual $6.1\times10^{-2}$ MW, worst
+ramp overshoot $0$, most negative dispatch $1.8\times10^{-15}$ MW, SOC-infeasible
+windows $0/60$. The construction holds.
+
+\paragraph{$\alpha^{\star}$ collapses.} Measured on 40 test gaps with the trained
+checkpoints:
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+ & \texttt{baseline} & \texttt{cost} & \texttt{size\_aware} \\
+\midrule
+mean $\alpha^{\star}$          & $0.017$ & $0.006$ & $0.097$ \\
+median $\alpha^{\star}$        & $0$     & $0$     & $0.056$ \\
+windows with $\alpha^{\star}=0$ & $32/40$ & $38/40$ & $3/40$ \\
+binding wall                   & box-lo $39$ & --- & box-lo $34$, ramp-up $6$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Mechanism.} The anchor's last inequality step is the box clip, so
+$\mathbf{A}$ routinely sits \emph{on} the lower face, $A_{t,i}=0$ exactly (about
+$26$ of $216$ cells per window). If any such cell has $r_{t,i}<0$, then
+\eqref{eq:wall-box} gives
+\begin{equation}
+\alpha_{\mathrm{lo}}\le\frac{0-A_{t,i}}{r_{t,i}}=0
+\quad\Longrightarrow\quad \alpha^{\star}=0
+\quad\Longrightarrow\quad \mathbf{P}=\mathbf{A}.
+\end{equation}
+One cell out of $216$ zeroes the single global step length, and the network's
+entire contribution is dropped. For \texttt{baseline} and \texttt{cost} this
+happens in most windows, so their output \emph{is} the projected interpolation.
+
+\paragraph{Why size-aware helps.} Its proportional split stops the anchor from
+pushing mid-sized channels down onto the zero face: \texttt{hydro} goes
+$10.8\%\to0\%$ of cells at zero, \texttt{battery\_charging} $27.7\%\to0\%$. Fewer
+zero cells, fewer triggers, so $\alpha^{\star}=0$ drops from $32/40$ to $3/40$.
+It does not remove the conservatism: \texttt{gas\_steam} and \texttt{gas\_ocgt}
+genuinely sit at zero $44\%$ and $25\%$ of the time, and the median surviving
+fraction of the network's deviation is still $5.6\%$, i.e.\ $445$ MW of model
+deviation admitted as $36$ MW of movement.
+
+\section{Code map}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+what & where \\
+\midrule
+caps, ramps, $\eta$, pack size & \texttt{ml/check\_caps.py} \\
+$\Pi_{\mathrm{bal}}$ (the size-aware split) & \texttt{constraints.py:104} \texttt{\_balance\_project} \\
+$\Pi_{\mathrm{ramp}}$ & \texttt{constraints.py:123} \texttt{\_ramp\_project} \\
+$\Pi_{\mathrm{soc}}$ & \texttt{constraints.py:141} \texttt{\_soc\_project} \\
+anchor loop (Step 1) & \texttt{constraints.py:157} \texttt{cyclic\_project} \\
+Steps 2--4 (the head) & \texttt{constraint\_layers.py:60} \texttt{rayen\_traj\_project} \\
+network + loss & \texttt{model.py} \\
+head applied, training & \texttt{plan1\_train.py:66} \texttt{forward\_mapped} \\
+head applied, eval & \texttt{plan1\_bench.py:66} \texttt{score} \\
+readable single-file version & \texttt{sizeaware\_constraints\_reference.py} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+\emph{Two implementation notes.} \texttt{ramp\_tube}, \texttt{bridge\_feasible}
+and \texttt{\_ramp\_pocs} in \texttt{constraints.py} are analysis helpers and are
+never called on this path. And \texttt{constraints.py} caches
+$\mathbf{c},\bm{\rho}^{\pm}$ as float32 tensors, so even the float64 path runs
+with limits off by up to $1.95\times10^{-4}$ MW; harmless, but it is why a clean
+float64 reimplementation disagrees at that level.
+
+\end{document}

@@ -1,0 +1,87 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+
+\begin{document}
+
+\section*{RAYEN Head Summary (size-aware balance + SOC)}
+
+The head acts on a whole gap \emph{trajectory}. Let the fill span $N$ steps and
+$6$ dispatch fuels, so $\mathbf{P}\in\mathbb{R}^{N\times 6}$, with row $\mathbf{P}_t$
+the dispatch at step $t$. Let $\mathbf{s}=[\,1,1,1,1,-1,1\,]^\top$ be the balance
+signs (battery charging is a load), $nd_t$ the known net demand at step $t$, and
+$\mathbf{p}^L,\mathbf{p}^R\in\mathbb{R}^6$ the pinned dispatch just before / after
+the gap. Caps $\mathbf{c}$, ramp limits $\bm{\rho}^+,\bm{\rho}^-$, per-side
+efficiency $\eta$, interval $\Delta t$, and effective reservoir cap $C$ are fixed.
+
+\subsection*{1. Feasible anchor}
+Start from a feasible trajectory $\mathbf{A}\in\mathbb{R}^{N\times 6}$ (the smooth
+interpolation between $\mathbf{p}^L,\mathbf{p}^R$ projected onto
+$\{\text{balance}\}\cap\{\text{ramp}\}\cap\{\text{box}\}\cap\{\text{SOC}\}$, or a
+supplied reference). It satisfies $\mathbf{s}^\top\mathbf{A}_t=nd_t$ for all $t$ and
+carries no gradient.
+
+\subsection*{2. Size-aware balance projection of the direction}
+Let $\mathbf{r}=\mathbf{P}^{\text{raw}}-\mathbf{A}$ be the model's deviation from the
+anchor. Remove its balance component so that travelling along $\mathbf{r}$ preserves
+$\mathbf{s}^\top\mathbf{P}_t=nd_t$ exactly. With per-channel weights
+$w_{t,i}=|A_{t,i}|+1$ (level, $+1$ MW floor), the \emph{size-aware} removal is
+\begin{equation}
+    \mathbf{r}_{t} \;\leftarrow\; \mathbf{r}_{t}
+    \;-\; \frac{\mathbf{s}^\top \mathbf{r}_{t}}{\sum_{i} w_{t,i}}\;\bigl(\mathbf{w}_{t}\odot \mathbf{s}\bigr),
+\end{equation}
+which gives $\mathbf{s}^\top \mathbf{r}_{t}=0$ (tangent to the balance plane) while
+absorbing the correction in proportion to each channel's size---big channels move
+in MW, tiny channels barely move. The equal-split default is the special case
+$w_{t,i}\equiv 1$, i.e. $\mathbf{r}_t\leftarrow \mathbf{r}_t-\tfrac{\mathbf{s}^\top\mathbf{r}_t}{6}\mathbf{s}$.
+
+\subsection*{3. Maximum step $\alpha^\star$ (walls)}
+$\alpha^\star$ is the largest fraction in $[0,1]$ that keeps $\mathbf{A}+\alpha\mathbf{r}$
+inside every wall. Each wall is linear in $\alpha$, so it reduces to a
+distance-to-wall ratio; $\alpha^\star$ is the tightest of them:
+\begin{align}
+    \text{box:}\quad
+    &\alpha_{\text{hi}}=\min_{r_{t,i}>0}\frac{c_i-A_{t,i}}{r_{t,i}},
+     &&\alpha_{\text{lo}}=\min_{r_{t,i}<0}\frac{0-A_{t,i}}{r_{t,i}}, \\[4pt]
+    \text{ramp:}\quad
+    &\alpha_{\text{up}}=\min_{\Delta r_{j}>0}\frac{\rho^{+}-\Delta A_{j}}{\Delta r_{j}},
+     &&\alpha_{\text{dn}}=\min_{\Delta r_{j}<0}\frac{-\rho^{-}-\Delta A_{j}}{\Delta r_{j}},
+\end{align}
+where $\Delta A=\mathrm{diff}\!\left([\mathbf{p}^L;\mathbf{A};\mathbf{p}^R]\right)$ and
+$\Delta r=\mathrm{diff}\!\left([\mathbf{0};\mathbf{r};\mathbf{0}]\right)$ are the
+$N{+}1$ consecutive differences (both seams included; $\mathbf{r}=\mathbf{0}$ at the
+pinned boundaries).
+
+\paragraph{SOC wall (new).} The battery reservoir energy is linear in the dispatch,
+so it is affine in $\alpha$. Let the per-step energy increment be
+$e_t=(\eta\,\mathrm{chg}_t-\mathrm{dis}_t/\eta)\,\Delta t$ and the cumulative energy
+$E_t(\alpha)=E^{A}_t+\alpha E^{r}_t$, where $E^{A},E^{r}$ are the cumulative sums
+(leading $0$) of the anchor's and direction's increments. Feasibility requires the
+peak-to-trough swing to fit the pack, i.e. for every ordered pair $(t,t')$,
+$E_t(\alpha)-E_{t'}(\alpha)\le C$. Writing $\Delta E^{A}=E^{A}_t-E^{A}_{t'}$ and
+$\Delta E^{r}=E^{r}_t-E^{r}_{t'}$ this is affine, giving
+\begin{equation}
+    \alpha_{\text{soc}}=\min_{\Delta E^{r}>0}\frac{C-\Delta E^{A}}{\Delta E^{r}} .
+\end{equation}
+Pairs with $\Delta E^{r}\le 0$ never bind, since the anchor already satisfies the
+swing constraint at $\alpha=0$.
+
+\paragraph{Combined step.}
+\begin{equation}
+    \alpha^\star=\operatorname{clip}\!\Bigl(
+      \min\bigl(\alpha_{\text{hi}},\alpha_{\text{lo}},
+                \alpha_{\text{up}},\alpha_{\text{dn}},
+                \alpha_{\text{soc}}\bigr),\,0,\,1\Bigr).
+\end{equation}
+
+\subsection*{4. Final trajectory}
+\begin{equation}
+    \mathbf{P}=\mathbf{A}+\alpha^\star\,\mathbf{r}.
+\end{equation}
+Balance holds exactly for any $\alpha$ (because $\mathbf{r}$ is tangent), and
+ramp, box, and SOC hold by construction of $\alpha^\star$. The single global
+$\alpha^\star$ makes this a conservative one-shot: one binding wall anywhere caps
+the whole trajectory's move toward the model's fill.
+
+\end{document}

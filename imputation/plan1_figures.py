@@ -44,7 +44,9 @@ TABLE = ROOT / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_ren" / 
 ARMS = ["baseline", "cost", "size_aware"]
 CTX, GAP = 48, 36
 FREE = (11, 14)
-Q = 2.0
+Q = 2.4                       # max rebound=reduction feasible over the WHOLE DAY (balance+SOC
+                              # across 288 steps, q_max 2.41%). 3h-window-only feasibility allows 4.2%.
+N_RISE = 8                    # counterfactual figure: number of largest-rise days to show
 COLORS = {"coal_brown": "saddlebrown", "gas_steam": "#d62728", "gas_ocgt": "#ff7f0e",
           "hydro": "royalblue", "battery_discharging": "#9467bd", "battery_charging": "dimgray"}
 WIND, SOLAR = "#2e8b40", "#f4c20d"
@@ -85,6 +87,17 @@ def model_fill(model, te, feat_cols, xm, xs_, ym, ys_, rows, overrides=None,
     # dev is the y-scaled deviation; interp is already MW, so fill = interp + dev*scale
     # (equivalent to the training-time (interp_s + dev)*scale + mean)
     return interp + dev * ys_, pL, pR
+
+
+def project_full_day(day_mw, pL, pR, nd_full, size_aware):
+    """Project the WHOLE 288-step day onto balance∩ramp∩box∩SOC (size-aware split),
+    so SOC is enforced over the full day (not just the 3h window) and balance is
+    exact everywhere. Pins to the day's own scaled-actual edges. iters high enough
+    that the 288-step balance converges to machine-exact."""
+    with torch.no_grad():
+        return C.cyclic_project(torch.tensor(day_mw[None]), torch.tensor(pL[None]),
+                                torch.tensor(pR[None]), torch.tensor(nd_full[None]),
+                                iters=400, soc=True, size_aware=size_aware)[0].numpy()
 
 
 def rayen(fill, pL, pR, nd, size_aware, soc=False):
@@ -155,6 +168,22 @@ def pick_days(te, n=4, seed=42):
     return list(range(best, best + n)), full
 
 
+def pick_large_rise_days(te, n=N_RISE):
+    """The n test days with the LARGEST free-window net-demand rise under the shift
+    (biggest counterfactual response to inspect). Returned in date order."""
+    days = te.index.normalize()
+    full = [d for d in pd.unique(days) if (days == d).sum() == 288]
+    free = (te.index.hour >= FREE[0]) & (te.index.hour < FREE[1])
+    dem = te["demand_mw"].values
+    dem_s = FixedPercentageShift(Q, Q, free_hours=FREE).transform(
+        pd.DataFrame({"demand_mw": dem, "price_aud_per_mwh": 0.0}, index=te.index))["demand_mw"].values
+    d_dem = dem_s - dem
+    rise = {i: d_dem[np.where(days == d)[0]][free[np.where(days == d)[0]]].mean()
+            for i, d in enumerate(full)}
+    top = sorted(rise, key=rise.get, reverse=True)[:n]
+    return sorted(top), full
+
+
 def deliverable_a(te, feat_cols, xm, xs_, ym, ys_, sfx):
     pick, full = pick_days(te)
     rng = np.random.default_rng(7)
@@ -197,7 +226,7 @@ def deliverable_a(te, feat_cols, xm, xs_, ym, ys_, sfx):
 
 
 def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
-    pick, full = pick_days(te)
+    pick, full = pick_large_rise_days(te)           # largest counterfactual-rise days
     hour = te.index.hour
     free_all = (hour >= FREE[0]) & (hour < FREE[1])
     sh = FixedPercentageShift(Q, Q, free_hours=FREE).transform(
@@ -205,22 +234,20 @@ def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
                       "price_aud_per_mwh": te["price_aud_per_mwh"].values},
                      index=te.index))
     dem_s = sh["demand_mw"].values
-    curt = (te["wind_curtailment"] + te["solar_curtailment"]).values
     nd_bal_base = te[TARGETS].values @ SIGN
     d_dem = dem_s - te["demand_mw"].values
-    nd_bal_cf = nd_bal_base + d_dem - np.where(free_all, curt, 0.0)
-    # the nd FEATURE the model sees (user recipe: actual curtailment in the formula)
-    nd_feat_cf = (dem_s - te["wind"].values - te["solar_utility"].values
-                  - te["wind_curtailment"].values - te["solar_curtailment"].values)
+    # nd = nd + Delta(total demand): renewables (wind/solar/curtailment) fixed, so net
+    # demand moves by exactly the demand change -- feasible on all 186 days (no curtailment
+    # credit, which drove net demand below the fleet floor on high-curtailment days).
+    nd_bal_cf = nd_bal_base + d_dem
+    nd_feat_cf = te["net_demand"].values + d_dem       # demand-side nd feature + Delta demand
 
     def overrides(span_idx):
         rows = te.iloc[span_idx]
         fr = free_all[span_idx]
-        ov = {"demand_mw": dem_s[span_idx], "net_demand": nd_feat_cf[span_idx],
-              "price_aud_per_mwh": np.where(fr, 0.0, rows["price_aud_per_mwh"].values),
-              "wind_curtailment": np.where(fr, 0.0, rows["wind_curtailment"].values),
-              "solar_curtailment": np.where(fr, 0.0, rows["solar_curtailment"].values)}
-        return ov
+        return {"demand_mw": dem_s[span_idx], "net_demand": nd_feat_cf[span_idx],
+                "price_aud_per_mwh": np.where(fr, 0.0, rows["price_aud_per_mwh"].values)}
+        # wind / solar / curtailment stay at ACTUAL (renewables fixed)
 
     rows_all = np.concatenate([np.where(te.index.normalize() == full[di])[0] for di in pick])
     shade = [(off * 288 + FREE[0] * 12, off * 288 + FREE[1] * 12) for off in range(len(pick))]
@@ -261,26 +288,31 @@ def deliverable_b(te, feat_cols, xm, xs_, ym, ys_, sfx):
                 for k, r in enumerate(span):
                     pos = np.where(day_rows == r)[0]
                     ctx_disp[k] = day_disp[pos[0]] if len(pos) else te.iloc[r][TARGETS].values
-                fill, pL, pR = model_fill(model, te, feat_cols, xm, xs_, ym, ys_,
-                                          rows, overrides(span), ctx_disp)
-                P = rayen(fill, pL, pR, nd_bal_cf[rows], size_aware, soc=True)   # SOC ON (plan)
-                day_disp[g0:g0 + GAP] = P
+                fill, _, _ = model_fill(model, te, feat_cols, xm, xs_, ym, ys_,
+                                        rows, overrides(span), ctx_disp)
+                day_disp[g0:g0 + GAP] = fill                                     # raw model fill
+                # project the WHOLE day so SOC/balance/ramp/box hold over 288 steps
+                day_disp = project_full_day(day_disp, day_disp[0].copy(),
+                                            day_disp[-1].copy(), nd_bal_cf[day_rows], size_aware)
                 days_out.append(day_disp)
-                viol["bal>1MW"] += int((np.abs((P * SIGN).sum(-1) - nd_bal_cf[rows]) > 1.0).sum())
-                d = np.diff(np.vstack([pL[None], P, pR[None]]), axis=0)
-                viol["ramp"] += int(((d > C.R_UP + 0.6) | (d < -(C.R_DN + 0.6))).sum())
-                viol["neg"] += int((P < -0.1).sum())
-                viol["SOC"] += int(C._soc_swing_mwh(P) > C.BATT_CAP_MWH + 1e-6)
+                # audit the full day
+                bal = np.abs((day_disp * SIGN).sum(-1) - nd_bal_cf[day_rows])
+                dd = np.diff(day_disp, axis=0)
+                viol["bal>1MW"] += int((bal > 1.0).sum())
+                viol["ramp"] += int(((dd > C.R_UP + 0.6) | (dd < -(C.R_DN + 0.6))).sum())
+                viol["neg"] += int((day_disp < -0.1).sum())
+                viol["SOC"] += int(C._soc_swing_mwh(day_disp) > C.BATT_CAP_MWH + 1e-6)
             disp = np.concatenate(days_out)
             title = ("scaled before/after — off-window x nd_after/nd_before, window model-filled"
                      if mode == "scaled" else
                      "actual + masked window — off-window actual, window model-filled")
-            fig, ax = plt.subplots(2, 1, figsize=(16, 9), sharex=True, sharey=True)
+            fig, ax = plt.subplots(2, 1, figsize=(max(16, 2.6 * len(pick)), 9),
+                                   sharex=True, sharey=True)
             draw_stack(ax[0], te.iloc[rows_all], act_disp, te.iloc[rows_all]["demand_mw"].values,
                        shade, "actual (free window shaded; red = net demand)", nd_line=nd_act)
             draw_stack(ax[1], te.iloc[rows_all], disp, dem_s[rows_all], shade,
                        f"counterfactual — {title}  [{arm}]  (rebound {Q:g}%, reduce {Q:g}%)",
-                       curt_solid=free_all[rows_all], nd_line=nd_cf)
+                       nd_line=nd_cf)
             fig.suptitle(f"plan1 B — {arm}, {mode}: actual vs counterfactual")
             fp = OUT / f"cf_{mode}_{arm}{sfx}.png"
             finish(ax[1], fig, fp)
