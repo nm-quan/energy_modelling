@@ -1,0 +1,16 @@
+{
+ "arm": "brits_rayen",
+ "backbone": "brits",
+ "head": "rayen",
+ "gap": 36,
+ "residual": false,
+ "params": 382726,
+ "best_val": 2.920886993408203,
+ "epochs_run": 1,
+ "train": [
+  1.975819818675518
+ ],
+ "val": [
+  2.920886993408203
+ ]
+}

@@ -1,0 +1,32 @@
+# Peak filling 18:00-21:00 — 185 test days
+
+Gap = 36 steps opening at 18:00, right edge pinned at 21:00. Every test day in 2026-01-01..2026-07-04. Statistics are over all 185 x 36 = 6,660 cells per channel; the figure is the day-average of the same arrays.
+
+## MAE (MW)
+
+| arm | hydro | coal | steam | ocgt | bat_chg | bat_dis | wind_cu | sol_cu | disp agg | curt agg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| interp | 95.3 | 74.8 | 3.9 | 17.7 | 8.8 | 129.8 | 45.1 | 9.8 | **55.1** | **27.5** |
+| anchor | 93.2 | 72.6 | 9.1 | 62.0 | 100.2 | 100.9 | 45.1 | 9.8 | **73.0** | **27.5** |
+| rayen | 84.7 | 93.4 | 38.4 | 62.0 | 7.8 | 97.5 | 60.2 | 5.8 | **63.9** | **33.0** |
+
+## MRE (%)
+
+| arm | hydro | coal | steam | ocgt | bat_chg | bat_dis | wind_cu | sol_cu |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| interp | 14.5 | 1.9 | 18.5 | 10.9 | 123.1 | 36.6 | 54.6 | 218.6 |
+| anchor | 14.2 | 1.8 | 42.9 | 38.1 | 1,396.0 | 28.4 | 54.6 | 218.6 |
+| rayen | 12.9 | 2.3 | 181.5 | 38.1 | 108.2 | 27.5 | 72.9 | 129.2 |
+
+_Share of window cells at or below 1 MW: hydro 5%, coal 0%, steam 94%, ocgt 59%, bat_chg 17%, bat_dis 3%, wind_cu 65%, sol_cu 91%._
+
+## Window energy mix (% of gross generation, day-averaged)
+
+| arm | coal | hydro | gas OCGT | gas steam | battery out |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| actual | 77.1 | 12.6 | 3.1 | 0.4 | 6.8 |
+| interp | 79.0 | 11.8 | 3.0 | 0.4 | 5.9 |
+| anchor | 74.9 | 13.4 | 4.0 | 0.4 | 7.3 |
+| rayen | 76.0 | 12.8 | 4.1 | 1.1 | 6.0 |
+
+_Gross generation excludes battery charging, which is a load._

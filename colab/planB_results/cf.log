@@ -1,0 +1,11 @@
+days 2026-06-01 .. 2026-06-10  window 11:00-14:00
+Traceback (most recent call last):
+  File "/Users/nguyenminhquan/Downloads/energy_modelling/planB/counterfactual.py", line 316, in <module>
+    main()
+  File "/Users/nguyenminhquan/Downloads/energy_modelling/planB/counterfactual.py", line 238, in main
+    res[(mode, arm)] = run(arm, mode)
+  File "/Users/nguyenminhquan/Downloads/energy_modelling/planB/counterfactual.py", line 211, in run
+    Pb, cb = fill(arm, rows, ctx, shifted=False)
+  File "/Users/nguyenminhquan/Downloads/energy_modelling/planB/counterfactual.py", line 170, in fill
+    vals[CTX:CTX + GAP, feat_cols.index("net_demand")] = nd_t
+UnboundLocalError: local variable 'nd_t' referenced before assignment

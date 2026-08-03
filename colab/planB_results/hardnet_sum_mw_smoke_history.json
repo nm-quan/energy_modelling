@@ -1,0 +1,17 @@
+{
+ "arm": "hardnet",
+ "backbone": "bilstm",
+ "head": "hardnet",
+ "gap": 36,
+ "residual": true,
+ "loss": "sum_mw",
+ "params": 1222664,
+ "best_val": 253155.5625,
+ "epochs_run": 1,
+ "train": [
+  110582.66259765625
+ ],
+ "val": [
+  253155.5625
+ ]
+}

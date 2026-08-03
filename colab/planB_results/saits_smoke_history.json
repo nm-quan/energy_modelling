@@ -1,0 +1,16 @@
+{
+ "arm": "saits",
+ "backbone": "saits",
+ "head": "hardnet",
+ "gap": 36,
+ "residual": true,
+ "params": 1213197,
+ "best_val": 1.836432933807373,
+ "epochs_run": 1,
+ "train": [
+  1.3863058649003506
+ ],
+ "val": [
+  1.836432933807373
+ ]
+}

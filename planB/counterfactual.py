@@ -54,7 +54,6 @@ from fit import (curt_activation, CURT_COLS, CTX, GAP,                 # noqa: E
 CURT_NAMES = ["wind_curtailment", "solar_curtailment"]
 
 OUT = ROOT / "planB" / "results"
-Q = F.Q
 DT = 5.0 / 60.0
 # real grid, 3-hour marginal response, normalised (dispatch_study Study A)
 EMP = {"coal_brown": 43.4, "hydro": 29.3, "gas_ocgt": 9.7, "gas_steam": 3.7,
@@ -107,8 +106,18 @@ def draw(ax, rows_df, disp, dem, nd, shade, title, curt=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=10)
+    ap.add_argument("--q", type=float, default=None,
+                    help="rebound = reduction, in %%. Default 2.4 came from the MAX "
+                         "ramp envelope. Under p99.9 the fleet has 1,241.6 MW of "
+                         "one-step up-ramp, and a 2.4%% rebound needs a 1,402 MW jump "
+                         "at the window edge -- 113%% of capacity, so infeasible. "
+                         "1.0%% needs 584 MW (47%%).")
+    ap.add_argument("--arms", nargs="+", default=None,
+                    help="checkpoint stems to run; default is all found")
+    ap.add_argument("--suffix", default="")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
+    Q = args.q if args.q is not None else F.Q
 
     te, feat_cols, xm, xs_, ym, ys_ = F.load_test()
     tfi = np.asarray(TARGET_FEAT_IDX)
@@ -139,13 +148,15 @@ def main():
     ndf_cf = nd_cf
 
     models = {}
-    for arm in PLANB:
+    want = args.arms or PLANB
+    for arm in want:
         p = OUT / f"{arm}.pt"
         if not p.exists():
             print(f"  [skip] {arm}"); continue
         ck = torch.load(p, map_location="cpu", weights_only=False)
         head_fn, n_disp = HEADS[ck["head"]]
         bb = ck.get("backbone", "brits" if arm == "brits" else "bilstm")
+        META.setdefault(arm, (bb, ck["head"], "p99.9"))
         m = (BACKBONES[bb](len(feat_cols), n_disp, hidden=ck["hidden"]) if bb == "bilstm"
              else BACKBONES[bb](len(feat_cols), TARGET_FEAT_IDX, CURT_COLS, n_disp,
                                 hidden=ck["hidden"]))
@@ -162,18 +173,18 @@ def main():
                 free[span], 0.0, te.iloc[span]["price_aud_per_mwh"].values)
         for k, t_ in enumerate(TARGETS):
             vals[:, feat_cols.index(t_)] = ctx[:, k]
+        nd_t = (nd_cf if shifted else nd_base)[rows]
         # supply-side nd feature, from the mode's own dispatch world, matching the
         # balance target. Inside the gap the true dispatch is not available, so the
-        # window is filled with the scenario's nd directly.
+        # window carries the scenario's nd directly.
         vals[:, feat_cols.index("net_demand")] = ctx @ SIGN
         vals[CTX:CTX + GAP, feat_cols.index("net_demand")] = nd_t
+        pL = vals[CTX - 1, [feat_cols.index(t_) for t_ in TARGETS]]
+        pR = vals[CTX + GAP, [feat_cols.index(t_) for t_ in TARGETS]]
         X = ((vals - xm) / xs_).astype(np.float32)
         mk = np.ones((len(span), 1), np.float32); mk[CTX:CTX + GAP] = 0.0
         X[CTX:CTX + GAP, tfi] = 0.0
         X[CTX:CTX + GAP, CURT_COLS] = 0.0
-        nd_t = (nd_cf if shifted else nd_base)[rows]
-        pL = vals[CTX - 1, [feat_cols.index(t_) for t_ in TARGETS]]
-        pR = vals[CTX + GAP, [feat_cols.index(t_) for t_ in TARGETS]]
         m, head_fn, n_disp, bb, resid = models[arm]
         with torch.no_grad():
             xt = torch.from_numpy(X[None]); mkt = torch.from_numpy(mk[None])
@@ -243,7 +254,7 @@ def main():
             print(f"  {mode:7s} {arm}")
 
     # ---------------- figure: one row per arm, masked mode ----------------
-    order = [a for a in PLANB if a in models]
+    order = [a for a in want if a in models]
     fig, ax = plt.subplots(len(order) + 1, 1, figsize=(2.0 * len(pick) + 3,
                                                        2.6 * (len(order) + 1)),
                            sharex=True, sharey=True)
@@ -253,7 +264,7 @@ def main():
     for i, arm in enumerate(order):
         draw(ax[i + 1], te.iloc[rows_all], res[("masked", arm)]["disp"],
              dem_s[rows_all], nd_cf[rows_all], shade,
-             f"{arm}  ({META[arm][0]} + {META[arm][1]} head, {META[arm][2]} envelope)",
+             f"{arm}  ({META[arm][0]} + {META[arm][1]} head)",
              curt=res[("masked", arm)]["curt"])
     ax[-1].set_xticks([k * 288 + 144 for k in range(len(pick))])
     ax[-1].set_xticklabels([str(full[d].date())[5:] for d in pick], fontsize=8)
@@ -262,9 +273,9 @@ def main():
                  f"(rebound {Q:g}%, reduce {Q:g}%)", fontsize=12.5, color=INK,
                  x=0.01, ha="left")
     fig.tight_layout(rect=[0, 0, 1, 0.975])
-    fig.savefig(OUT / "counterfactual_10day.png", dpi=120, facecolor="white")
+    fig.savefig(OUT / f"counterfactual_10day{args.suffix}.png", dpi=120, facecolor="white")
     plt.close(fig)
-    print(f"wrote {OUT/'counterfactual_10day.png'}")
+    print(f"wrote {OUT}/counterfactual_10day{args.suffix}.png")
 
     # ---------------- report ----------------
     L = [f"# planB counterfactual - {len(pick)} days, planA protocol", "",
@@ -312,7 +323,7 @@ def main():
           "counterfactual, which is the physically expected direction even though "
           "nothing forces it here._", ""]
 
-    (OUT / "counterfactual.md").write_text("\n".join(L) + "\n")
+    (OUT / f"counterfactual{args.suffix}.md").write_text("\n".join(L) + "\n")
     print("\n".join(L))
 
 

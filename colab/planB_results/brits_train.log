@@ -1,0 +1,12 @@
+arm=brits  head=hardnet  dispatch outputs=6  hidden=192  params=382,704  device=cpu
+windows: train 40,000 val 2,000 (1s)
+  val before training: 7.5921
+    batch    0/312 loss 2.9890
+    batch   60/312 loss 0.6827
+    batch  120/312 loss 0.5910
+    batch  180/312 loss 0.5697
+    batch  240/312 loss 0.4804
+    batch  300/312 loss 0.4257
+  ep001 train 0.7815  val 2.1053  (220s)
+
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/planB/results/brits.pt

@@ -1,0 +1,12 @@
+arm=unconstrained  head=none  dispatch outputs=6  hidden=192  params=1,222,664  device=cpu
+windows: train 40,000 val 2,000 (1s)
+  val before training: 5.3847
+    batch    0/312 loss 0.7971
+    batch   60/312 loss 0.3493
+    batch  120/312 loss 0.2721
+    batch  180/312 loss 0.2967
+    batch  240/312 loss 0.2591
+    batch  300/312 loss 0.2161
+  ep001 train 0.3118  val 2.3755  (251s)
+
+wrote /Users/nguyenminhquan/Downloads/energy_modelling/planB/results/unconstrained.pt

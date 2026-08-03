@@ -97,8 +97,29 @@ def _supply_side_nd(X, f, tfi):
     return X
 
 
-def build(f, starts, split, gap=GAP):
-    Xflat, Yflat = ((f.Xtr, f.Ytr) if split == "train" else
+TABLE = ROOT / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_ren" / "table.parquet"
+
+
+def flats_by_date(f, lo, hi):
+    """Standardised (X, Y) flats for an arbitrary date range, straight from the
+    table. Uses the npz's ORIGINAL scalers -- refitting on a shorter window would
+    make the numbers incomparable with every other arm.
+
+    Needed because the npz splits are fixed (train <=2025-06-30, val <=2025-12-31,
+    test from 2026-01-01), so 'train on 2025 plus part of 2026' spans all three.
+    """
+    import pandas as pd
+    t = pd.read_parquet(TABLE)
+    m = (t.index >= pd.Timestamp(lo, tz=t.index.tz)) & (t.index <= pd.Timestamp(hi, tz=t.index.tz))
+    d = t[m]
+    X = ((d[f.feat_cols].values - f.x_mean) / f.x_scale).astype(np.float32)
+    Y = ((d[TARGETS].values - f.y_mean) / f.y_scale).astype(np.float32)
+    return X, Y, d.index
+
+
+def build(f, starts, split, gap=GAP, flats=None):
+    Xflat, Yflat = (flats if flats is not None else
+                    (f.Xtr, f.Ytr) if split == "train" else
                     (f.Xva, f.Yva) if split == "val" else (f.Xte, f.Yte))
     W = 2 * CTX + gap
     gs, ge = CTX, CTX + gap
@@ -126,10 +147,12 @@ def build(f, starts, split, gap=GAP):
             "c_mean": cm, "c_scale": cs}
 
 
-def sample(f, n, split, seed, gap=GAP):
-    Xflat = f.Xtr if split == "train" else f.Xva
+def sample(f, n, split, seed, gap=GAP, flats=None):
+    Xflat = (flats[0] if flats is not None else
+             f.Xtr if split == "train" else f.Xva)
     rng = np.random.default_rng(seed)
-    return build(f, rng.integers(0, Xflat.shape[0] - (2 * CTX + gap), size=n), split, gap)
+    return build(f, rng.integers(0, Xflat.shape[0] - (2 * CTX + gap), size=n),
+                 split, gap, flats)
 
 
 def main():
@@ -171,6 +194,13 @@ def main():
                          "in fp32. Running the head in bf16 would put the balance "
                          "residual around 1e-2 relative -- tens of MW on a 5 GW stack "
                          "-- which destroys the exactness the layer exists for.")
+    ap.add_argument("--train-range", nargs=2, metavar=("FROM", "TO"), default=None,
+                    help="train on this date range instead of the npz train split, "
+                         "e.g. --train-range 2025-01-01 2026-03-31. Spans the fixed "
+                         "npz splits, so it is built from the table with the npz "
+                         "scalers.")
+    ap.add_argument("--val-range", nargs=2, metavar=("FROM", "TO"), default=None)
+    ap.add_argument("--tag", default=None, help="checkpoint name override")
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
     if args.smoke:
@@ -191,14 +221,25 @@ def main():
     # the rayen head consumes a DIRECTION, not a dispatch level, so the interp
     # residual has no meaning there -- its anchor already plays that role.
     residual = (not args.no_residual) and n_disp == 6
-    tag = (args.arm + ("" if args.loss == "mse" else f"_{args.loss}")
-           + ("_smoke" if args.smoke else ""))
+    tag = args.tag or (args.arm + ("" if args.loss == "mse" else f"_{args.loss}")
+                       + ("_smoke" if args.smoke else ""))
 
     f = load_flats()
     nfeat = len(f.feat_cols)
     t0 = time.time()
-    tr = sample(f, args.n_train, "train", args.seed, gap)
-    va = sample(f, args.n_val, "val", args.seed + 777, gap)
+    if args.train_range:
+        trf = flats_by_date(f, *args.train_range)
+        vaf = flats_by_date(f, *(args.val_range or args.train_range))
+        print(f"train window {args.train_range[0]} -> {args.train_range[1]}  "
+              f"{len(trf[2]):,} rows ({len(trf[2])//288} days)", flush=True)
+        print(f"val   window {(args.val_range or args.train_range)[0]} -> "
+              f"{(args.val_range or args.train_range)[1]}  {len(vaf[2]):,} rows "
+              f"({len(vaf[2])//288} days)", flush=True)
+        tr = sample(f, args.n_train, "train", args.seed, gap, trf[:2])
+        va = sample(f, args.n_val, "val", args.seed + 777, gap, vaf[:2])
+    else:
+        tr = sample(f, args.n_train, "train", args.seed, gap)
+        va = sample(f, args.n_val, "val", args.seed + 777, gap)
 
     if backbone == "bilstm":
         model = BiLSTMImputer(nfeat, n_disp, hidden=args.hidden).to(dev)

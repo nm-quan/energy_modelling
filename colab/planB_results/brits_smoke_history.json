@@ -1,0 +1,16 @@
+{
+ "arm": "brits",
+ "backbone": "brits",
+ "head": "hardnet",
+ "gap": 36,
+ "residual": true,
+ "params": 382704,
+ "best_val": 1.9017950296401978,
+ "epochs_run": 1,
+ "train": [
+  0.5372417513281107
+ ],
+ "val": [
+  1.9017950296401978
+ ]
+}

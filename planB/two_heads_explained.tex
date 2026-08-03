@@ -1,0 +1,153 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,bm,cancel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+
+\title{The glide: the interpolation inside the RAYEN head}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{The formula}
+
+A gap of $N$ steps. We know $p_R$, the real value just after it. At each step:
+\[
+\boxed{\;P_{\text{new}} = P_{\text{old}} + \frac{p_R - P_{\text{old}}}{m}\;}
+\qquad
+m = \text{moves left (the $k$ gap steps left, plus the final one onto } p_R).
+\]
+\emph{Distance left, divided by moves left.} That is all it says.
+
+Expand it into a cleaner form by splitting the fraction:
+\[
+P_{\text{new}} = P_{\text{old}} + \frac{p_R}{m} - \frac{P_{\text{old}}}{m}
+= P_{\text{old}}\left(1 - \frac1m\right) + \frac{p_R}{m}
+= P_{\text{old}}\,\frac{m-1}{m} + \frac{p_R}{m}. \tag{1}
+\]
+
+Write $D = p_R - P$ for the distance still to go. Subtract (1) from $p_R$:
+\[
+D_{\text{new}} = p_R - P_{\text{new}}
+= p_R - P_{\text{old}}\frac{m-1}{m} - \frac{p_R}{m}
+= p_R\,\frac{m-1}{m} - P_{\text{old}}\,\frac{m-1}{m}
+= D_{\text{old}}\,\frac{m-1}{m}. \tag{2}
+\]
+
+Everything below is (1) and (2).
+
+\section{Why the steps come out equal}
+
+Step size is $s = D/m$. After the move, $D$ becomes $D\frac{m-1}{m}$ by (2) and
+$m$ becomes $m-1$. So the next step size is
+\[
+s_{\text{next}} = \frac{D_{\text{new}}}{m-1}
+= \frac{D\,\dfrac{m-1}{m}}{m-1}
+= \frac{D}{m}
+= s .
+\]
+The $(m-1)$ cancels. \textbf{Every move is the same size} --- a straight line ---
+and nobody put the straightness in; it fell out of the cancellation.
+
+\section{Why it always lands exactly on $p_R$}
+
+Apply (2) once per step, with $m$ counting down from $N+1$:
+\[
+D_N = D_0\cdot\frac{N}{N+1}\cdot\frac{N-1}{N}\cdot\frac{N-2}{N-1}\cdots\frac{1}{2}.
+\]
+Every numerator cancels the next denominator:
+\[
+D_N = D_0\cdot\frac{\cancel{N}}{N+1}\cdot\frac{\cancel{N-1}}{\cancel{N}}\cdots\frac{1}{\cancel{2}}
+= \frac{D_0}{N+1}.
+\]
+So after the last gap step the distance remaining is $D_0/(N+1)$ --- exactly one
+more move of the standard size $s = D_0/(N+1)$. It lands on the nose.
+
+\paragraph{Check.} $p_L=100$, $p_R=500$, $N=4$. Then $D_0=400$, $s=400/5=80$:
+\[
+100 \to 180 \to 260 \to 340 \to 420 \to 500 .
+\]
+
+\section{What an error does}
+
+This is the part that matters. Suppose at some step the answer is knocked off by
+$e$ --- something else in the fleet ran out of room, so this generator absorbed
+the difference. Take two trajectories, one clean and one knocked, and subtract
+(1) from itself:
+\[
+P'_{\text{new}} - P_{\text{new}}
+= \left(P'_{\text{old}}\frac{m-1}{m} + \frac{p_R}{m}\right)
+- \left(P_{\text{old}}\frac{m-1}{m} + \frac{p_R}{m}\right)
+= (P'_{\text{old}} - P_{\text{old}})\,\frac{m-1}{m}.
+\]
+The $p_R/m$ terms cancel, so the error obeys the same rule (2) as the distance.
+Telescoping it over $r$ steps, exactly as in Section 3:
+\[
+\boxed{\;e_r = e\cdot\frac{m-r}{m}\;}
+\]
+
+Read that carefully. It is \textbf{linear in $r$}: the error does not decay
+quickly, it bleeds off in a straight line and only reaches zero at the seam,
+where $r=m$.
+
+\paragraph{Check.} Knock of $e=120$ with $m=4$ moves left:
+\begin{center}
+\begin{tabular}{ccccc}
+\toprule
+$r$ & clean & knocked & error & $e\frac{m-r}{m}$ \\
+\midrule
+1 & 260 & 350 & 90 & $120\cdot\frac34 = 90$ \\
+2 & 340 & 400 & 60 & $120\cdot\frac24 = 60$ \\
+3 & 420 & 450 & 30 & $120\cdot\frac14 = 30$ \\
+4 & 500 & 500 & 0 & $120\cdot\frac04 = 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Two consequences.}
+\begin{itemize}
+\item The error is \textbf{never corrected}. It vanishes at the end only because
+      $p_R$ is pinned, not because anything noticed the mistake.
+\item Injecting an error at \emph{every} step and summing the linear decays
+      builds a \textbf{hump} --- small at both seams, largest in the middle.
+\end{itemize}
+
+\section{The measurement}
+
+Filling $18{:}00$--$21{:}00$ on $185$ test days:
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+ & MAE (MW) \\
+\midrule
+straight line $p_L \to p_R$, drawn once & $55.1$ \\
+the glide inside the head & $63.1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Same formula, $8$ MW worse, because the glide is re-aimed from a knocked
+position at every one of the $36$ steps. The predicted hump is visible: gas OCGT
+sits flat near $168$ MW in the data, and the glide arches to $236$ MW mid-window.
+
+\section{The ramp limit}
+
+Moves are trimmed to what the plant can physically do:
+$c = \operatorname{clip}(P_{\text{new}}, \ell, u)$. Trimming cannot cost us the
+landing, because $\ell$ and $u$ carry the guard
+\[
+\ell \;\ge\; p_R - m\cdot(\text{fastest rise}),
+\qquad
+u \;\le\; p_R + m\cdot(\text{fastest fall}),
+\]
+i.e.\ \emph{never stand anywhere you could not get back from in the $m$ moves you
+have left.}
+
+\vspace{1em}
+\noindent\rule{\linewidth}{0.4pt}\\[4pt]
+\footnotesize Balance snap, ray, and the HardNet projection with proofs:
+\texttt{planB/two\_heads\_explained\_full.tex}.
+
+\end{document}

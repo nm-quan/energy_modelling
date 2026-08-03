@@ -1,0 +1,558 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,bm}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+
+\title{Two ways to make a model's output obey the rules\\
+\large RAYEN and HardNet}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{The problem}
+
+At one instant the model produces a vector
+\[
+\mathbf{v} = (v_1,\;v_2,\;v_3,\;v_4,\;v_5,\;v_6).
+\]
+
+\paragraph{Rule 1 --- supply equals demand.} Write the signs as
+\[
+\mathbf{s} = (1,\;1,\;1,\;1,\;-1,\;1),
+\]
+and let $d$ be the known net demand. Then
+\[
+\boxed{\;\mathbf{s}\cdot\mathbf{P} \;=\; s_1P_1+s_2P_2+\dots+s_6P_6 \;=\; d\;}
+\]
+
+\paragraph{Rule 2 --- ramp rate}
+\[
+\boxed{\;\ell_i \;\le\; P_i \;\le\; u_i \quad\text{for every } i\;}
+\]
+
+Write the two rules as sets:
+\[
+C_0 = \{\mathbf{x} : \mathbf{s}\cdot\mathbf{x} = d\}
+\quad\text{(a plane)},
+\qquad
+B = \{\mathbf{x} : \bm{\ell}\le\mathbf{x}\le\mathbf{u}\}
+\quad\text{(a box)},
+\qquad
+C = C_0\cap B .
+\]
+
+Note $s_i^2=1$ for every $i$, so
+\[
+\|\mathbf{s}\|^2 = \mathbf{s}\cdot\mathbf{s} = s_1^2+\dots+s_6^2 = 6 = n. \tag{$\ast$}
+\]
+
+\section{What ``projection'' means}
+
+The \textbf{projection} of a point $\mathbf{v}$ onto a set $C$ is the closest
+point of $C$ to $\mathbf{v}$:
+\[
+\Pi_C(\mathbf{v}) \;=\; \arg\min_{\mathbf{P}\in C} \|\mathbf{P}-\mathbf{v}\|^2 .
+\]
+
+This is the one idea both methods are built from, but they apply it to different
+objects:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{HardNet} & projects the \emph{point} $\mathbf{v}$ onto $C$. Its output \emph{is} $\Pi_C(\mathbf{v})$.\\
+\textbf{RAYEN} & projects a \emph{direction} onto the plane's parallel directions,\\
+ & then travels along it from an anchor. Its output is \emph{not} $\Pi_C(\mathbf{v})$.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Projection onto the plane $C_0$}
+
+\begin{quote}
+\textbf{Claim.} $\displaystyle \Pi_{C_0}(\mathbf{v}) = \mathbf{v} + \lambda\,\mathbf{s}$
+with $\displaystyle \lambda = \frac{d-\mathbf{s}\cdot\mathbf{v}}{\|\mathbf{s}\|^2}
+= \frac{d-\mathbf{s}\cdot\mathbf{v}}{6}$.
+\end{quote}
+
+\noindent\textbf{Proof.} Write the answer as $\mathbf{P}=\mathbf{v}+\mathbf{w}$, so
+$\mathbf{w}$ is the correction we are choosing. Rule 1 says
+\[
+\mathbf{s}\cdot(\mathbf{v}+\mathbf{w}) = d
+\quad\Longleftrightarrow\quad
+\mathbf{s}\cdot\mathbf{w} = c, \qquad c := d-\mathbf{s}\cdot\mathbf{v}.
+\]
+So the task is: \emph{among all $\mathbf{w}$ with $\mathbf{s}\cdot\mathbf{w}=c$,
+find the shortest.}
+
+Split $\mathbf{w}$ into a part along $\mathbf{s}$ and a part perpendicular to it:
+\[
+\mathbf{w} = \lambda\,\mathbf{s} + \mathbf{z},
+\qquad
+\lambda := \frac{\mathbf{s}\cdot\mathbf{w}}{\|\mathbf{s}\|^{2}},
+\qquad
+\mathbf{z} := \mathbf{w}-\lambda\mathbf{s}.
+\]
+This split always works, and $\mathbf{z}$ really is perpendicular:
+\[
+\mathbf{s}\cdot\mathbf{z}
+= \mathbf{s}\cdot\mathbf{w} - \lambda\,\|\mathbf{s}\|^{2}
+= \mathbf{s}\cdot\mathbf{w} - \mathbf{s}\cdot\mathbf{w} = 0 .
+\]
+
+Now use the split twice.
+
+\emph{First, the constraint fixes $\lambda$.} Taking the dot product with $\mathbf{s}$,
+\[
+c = \mathbf{s}\cdot\mathbf{w}
+= \lambda\,\|\mathbf{s}\|^{2} + \underbrace{\mathbf{s}\cdot\mathbf{z}}_{=\,0}
+= \lambda\,\|\mathbf{s}\|^{2}
+\quad\Longrightarrow\quad
+\lambda = \frac{c}{\|\mathbf{s}\|^{2}} .
+\]
+There is no choice about $\lambda$ --- every admissible $\mathbf{w}$ has this same one.
+
+\emph{Second, Pythagoras kills $\mathbf{z}$.} Because $\mathbf{s}\perp\mathbf{z}$,
+the cross term vanishes:
+\[
+\|\mathbf{w}\|^{2}
+= \|\lambda\mathbf{s}+\mathbf{z}\|^{2}
+= \lambda^{2}\|\mathbf{s}\|^{2} + 2\lambda\underbrace{(\mathbf{s}\cdot\mathbf{z})}_{=\,0} + \|\mathbf{z}\|^{2}
+= \underbrace{\lambda^{2}\|\mathbf{s}\|^{2}}_{\text{fixed}} + \|\mathbf{z}\|^{2}.
+\]
+The first term cannot be changed. So $\|\mathbf{w}\|^2$ is smallest exactly when
+$\mathbf{z}=\mathbf{0}$, giving $\mathbf{w}=\lambda\mathbf{s}$ and
+\[
+\boxed{\;\Pi_{C_0}(\mathbf{v}) = \mathbf{v} + \frac{d-\mathbf{s}\cdot\mathbf{v}}{6}\,\mathbf{s}\;}
+\tag*{$\blacksquare$}
+\]
+
+\paragraph{So that is why $\mathbf{P}=\mathbf{v}+\lambda\mathbf{s}$.} Not because
+``straight at the plane is shortest'' as an assertion, but because any correction
+splits into a part along $\mathbf{s}$ that the constraint \emph{forces} on us and
+a perpendicular part that only adds length. Throw the perpendicular part away.
+
+\paragraph{In plain terms.} Coordinate $i$ changes by $\lambda s_i$, and
+$|\lambda s_i| = |\lambda|$, so \emph{every generator moves by the same number of
+megawatts}, up or down according to its sign.
+
+\section{Approach A --- RAYEN}
+
+\subsection*{Step 1: the anchor}
+
+RAYEN travels \emph{from} somewhere, so it needs a starting point $\mathbf{a}\in C$
+that already obeys both rules. HardNet needs no such thing. Where does
+$\mathbf{a}$ come from?
+
+\paragraph{The setting.} We are filling a gap of $N$ steps. We know the last real
+value before the gap, $\mathbf{p}_L$, and the first real value after it,
+$\mathbf{p}_R$. We fill the gap one step at a time; at step $j$ the previous
+answer $\mathbf{P}_{\text{prev}}$ is already fixed, and
+\[
+k = N - j
+\]
+is the number of gap steps still to come. Counting the final move onto
+$\mathbf{p}_R$, there are $k+1$ moves left.
+
+The anchor is built in two stages: \textbf{glide}, then \textbf{snap}.
+
+\subsubsection*{Stage 1 --- the glide (this is the interpolation)}
+
+Draw a straight line from where we are to where we must end up, cut it into the
+$k+1$ moves we have left, and take one:
+\[
+\boxed{\;\mathbf{c} = \operatorname{clip}\!\left(\mathbf{P}_{\text{prev}}
+ + \frac{\mathbf{p}_R - \mathbf{P}_{\text{prev}}}{k+1},\ \bm{\ell},\ \mathbf{u}\right)}
+\]
+That fraction is the whole idea. If you are $60$ MW away with $3$ moves left, you
+go $20$ MW. Next step you are $40$ away with $2$ left, so $20$ again --- a straight
+line, arrived at by dividing the remaining distance by the remaining moves.
+
+\paragraph{Why it is recomputed every step.} It would be equivalent to draw one
+line at the start and follow it, \emph{if nothing ever pushed us off}. But Steps
+2--6 below deliberately push us off: the ray moves the answer away from
+$\mathbf{c}$. Redrawing the line from wherever we actually landed means the glide
+always re-aims at $\mathbf{p}_R$ instead of running parallel to a line we have
+already left. It cannot accumulate drift.
+
+\paragraph{Why it never runs out of room.} The interval $[\bm{\ell},\mathbf{u}]$
+carries a third term besides the ramp and the cap:
+$\ell_i \ge p_{R,i} - k\,\text{rup}_i$ and $u_i \le p_{R,i} + k\,\text{rdn}_i$.
+Read it as: \emph{never walk somewhere you can no longer get back from in the
+$k$ steps you have left}. With that guard the glide always has somewhere legal to
+go.
+
+\subsubsection*{Stage 2 --- the snap (making it balance)}
+
+The glide fixes the endpoints, not the total. In general
+$\mathbf{s}\cdot\mathbf{c}\ne d$, so define the shortfall
+\[
+\Delta = d - \mathbf{s}\cdot\mathbf{c},
+\]
+and share it out. HardNet would share it \emph{equally}. The anchor shares it
+\textbf{in proportion to how much room each channel has} --- because a channel
+already pressed against its wall should not be asked to move.
+
+First, which way must channel $i$ go? Its contribution to the total is $s_iP_i$,
+so pushing $P_i$ up changes the total by $s_i$. To help close a gap of sign
+$\Delta$, channel $i$ must move up when $\Delta s_i > 0$ and down when
+$\Delta s_i < 0$. Measure its room \emph{in that direction}:
+\[
+\text{room}_i =
+\begin{cases}
+u_i - c_i & \text{if } \Delta s_i > 0 \quad(\text{it must go up}),\\[2pt]
+c_i - \ell_i & \text{if } \Delta s_i < 0 \quad(\text{it must go down}).
+\end{cases}
+\]
+Then hand out the shortfall in proportion to that room:
+\[
+\boxed{\;\mathbf{a} = \mathbf{c}
+ + \frac{\Delta}{\sum_m \text{room}_m}\,\bigl(\text{room}_i\, s_i\bigr)_{i=1}^{n}\;}
+\]
+
+\paragraph{Check that it balances.} Take the dot product with $\mathbf{s}$ and use
+$s_i^2=1$:
+\[
+\mathbf{s}\cdot\mathbf{a}
+= \mathbf{s}\cdot\mathbf{c}
+ + \frac{\Delta}{\sum_m \text{room}_m}\sum_i \text{room}_i\,\underbrace{s_i s_i}_{=\,1}
+= \mathbf{s}\cdot\mathbf{c} + \Delta\,\frac{\sum_i \text{room}_i}{\sum_m \text{room}_m}
+= \mathbf{s}\cdot\mathbf{c} + \Delta = d. \quad\checkmark
+\]
+The two sums cancel --- that is the only trick, and it works for \emph{any}
+positive weights, not just room. Room is the choice we made.
+
+\paragraph{Check that it stays in the box.} Channel $i$ moves by
+$|\Delta|\cdot\text{room}_i / \sum_m\text{room}_m$, which is at most
+$\text{room}_i$ provided
+\[
+|\Delta| \;\le\; \sum_m \text{room}_m ,
+\]
+and $\text{room}_i$ is exactly the distance to the wall it is moving toward. So
+as long as the fleet collectively has enough room, no channel overshoots. If it
+does not, the formula asks for more than exists, the final clip bites, and balance
+is lost --- the same corner case HardNet reports as \texttt{bal\_short}. Neither
+head can conjure capacity that is not there.
+
+\subsubsection*{A number, and the contrast with HardNet}
+
+Three generators, $\mathbf{s}=(1,1,-1)$, everything in $[0,10]$, $d=10$. Say
+$\mathbf{P}_{\text{prev}}=(4,2,1)$, $\mathbf{p}_R=(10,5,1)$, and $k=2$ moves left.
+
+\emph{Glide:}
+\[
+\mathbf{c} = (4,2,1) + \frac{(10,5,1)-(4,2,1)}{3} = (4,2,1)+(2,1,0) = (6,3,1),
+\qquad \mathbf{s}\cdot\mathbf{c} = 6+3-1 = 8 .
+\]
+
+\emph{Snap:} $\Delta = 10-8 = +2$. Generators 1 and 2 have $\Delta s_i>0$ so they
+go up; generator 3 has $s_3=-1$ so $\Delta s_3<0$ and it goes down:
+\[
+\text{room} = \bigl(\underbrace{10-6}_{4},\ \underbrace{10-3}_{7},\ \underbrace{1-0}_{1}\bigr),
+\qquad \sum\text{room} = 12,
+\qquad \frac{\Delta}{\sum\text{room}} = \frac{2}{12} = \frac16 .
+\]
+\[
+\mathbf{a} = (6,3,1) + \tfrac16\,(4\cdot 1,\ 7\cdot 1,\ 1\cdot(-1))
+= \left(6+\tfrac23,\ 3+\tfrac76,\ 1-\tfrac16\right) \approx (6.667,\ 4.167,\ 0.833).
+\]
+Check: $6.667+4.167-0.833 = 10$ \checkmark
+
+\emph{What HardNet would have done} with the same shortfall: share it equally,
+$\lambda = \Delta/\|\mathbf{s}\|^2 = 2/3$, giving $(6.667,\ 3.667,\ 0.333)$ ---
+also balanced.
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & generator 1 & generator 2 & generator 3 \\
+\midrule
+room available & $4$ & $7$ & $1$ \\
+anchor's move (by room) & $+0.667$ & $+1.167$ & $-0.167$ \\
+equal share (HardNet) & $+0.667$ & $+0.667$ & $-0.667$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Generator 2 is roomy, so the anchor leans on it. Generator 3 has only $1$ MW of
+room, so the anchor barely touches it while the equal share shoves it $0.667$ of
+the way to its floor. That is the entire argument for the weighting: \emph{spend
+the shortfall where there is space to spend it.}
+
+\paragraph{The cost of that choice.} The anchor is now a point we picked, not a
+point the problem forced on us. Change the weights and the anchor moves; change
+the anchor and RAYEN's final answer moves with it. HardNet's ``equal share'' looks
+cruder here, but it is not a preference --- it is what minimising
+$\|\mathbf{P}-\mathbf{v}\|$ produces, as Section 2 proved. This is the real
+difference between the two methods, and it is a genuine trade: RAYEN can encode
+knowledge that closeness alone would miss, at the price of that knowledge being an
+assumption someone has to defend.
+
+\subsection*{Step 2: aim at the guess}
+
+The direction from anchor to guess is $\mathbf{r} = \mathbf{v}-\mathbf{a}$, and
+the points along the way are $\mathbf{a}+t\,\mathbf{r}$ for $t\in[0,1]$.
+
+\subsection*{Step 3: why we cannot walk that way}
+
+Check Rule 1 on the path:
+\[
+\mathbf{s}\cdot(\mathbf{a}+t\,\mathbf{r})
+= \underbrace{\mathbf{s}\cdot\mathbf{a}}_{=\,d} + t\,(\mathbf{s}\cdot\mathbf{r})
+= d + t\,(\mathbf{s}\cdot\mathbf{r}).
+\]
+For this to equal $d$ at \emph{every} $t$ we need
+\[
+\boxed{\;\mathbf{s}\cdot\mathbf{r} = 0\;}
+\]
+Walking along $\mathbf{r}$ must not change the total --- it may change
+\emph{which} generator supplies the power, never \emph{how much}.
+
+\subsection*{Step 4: fixing the direction --- this is also a projection}
+
+We need the part of $\mathbf{r}$ that is perpendicular to $\mathbf{s}$. That is
+exactly the split from Section 2, and discarding the $\mathbf{s}$-component is the
+projection of $\mathbf{r}$ onto the plane's parallel directions
+$\mathbf{s}^{\perp}$:
+\[
+\boxed{\;\mathbf{r}' \;=\; \Pi_{\mathbf{s}^{\perp}}(\mathbf{r})
+\;=\; \mathbf{r} - \frac{\mathbf{s}\cdot\mathbf{r}}{\|\mathbf{s}\|^{2}}\,\mathbf{s}
+\;=\; \mathbf{r} - \frac{\mathbf{s}\cdot\mathbf{r}}{6}\,\mathbf{s}\;}
+\]
+Check it works:
+\[
+\mathbf{s}\cdot\mathbf{r}'
+= \mathbf{s}\cdot\mathbf{r} - \frac{\mathbf{s}\cdot\mathbf{r}}{6}\,\underbrace{(\mathbf{s}\cdot\mathbf{s})}_{=\,6}
+= \mathbf{s}\cdot\mathbf{r} - \mathbf{s}\cdot\mathbf{r} = 0 .\quad\checkmark
+\]
+
+\subsection*{Step 5: how far can we walk?}
+
+Coordinate $i$ travels along $a_i + t\,r_i'$. It reaches its ceiling when
+\[
+a_i + t\,r_i' = u_i \;\Longrightarrow\; t = \frac{u_i-a_i}{r_i'}
+\qquad (\text{relevant only if } r_i'>0),
+\]
+and its floor when
+\[
+a_i + t\,r_i' = \ell_i \;\Longrightarrow\; t = \frac{a_i-\ell_i}{-r_i'}
+\qquad (\text{relevant only if } r_i'<0).
+\]
+Stop at the first wall any coordinate reaches, and never overshoot the guess:
+\[
+\boxed{\;t^\star = \min\Bigl(1,\ \min_i\{\text{all such } t\}\Bigr)\;}
+\]
+
+\subsection*{Step 6: the answer}
+\[
+\boxed{\;\mathbf{P} = \mathbf{a} + t^\star\,\mathbf{r}'\;}
+\]
+Rule 1 holds because $\mathbf{s}\cdot\mathbf{r}'=0$; Rule 2 because $t^\star$
+stops before any wall.
+
+\paragraph{What RAYEN is \emph{not}.} It is not $\Pi_C(\mathbf{v})$. It is a point
+on a ray that starts at $\mathbf{a}$, and moving $\mathbf{a}$ moves the answer.
+
+\section{Approach B --- HardNet}
+
+HardNet computes $\Pi_C(\mathbf{v})$ exactly:
+\[
+\mathbf{P} \;=\; \arg\min_{\mathbf{P}\in C}\|\mathbf{P}-\mathbf{v}\|^{2},
+\qquad C = C_0\cap B .
+\]
+Section 2 solved this without the box. Now we add it back.
+
+\subsection*{Step 1: the shape of the answer}
+
+\begin{quote}
+\textbf{Claim.} The solution is
+$\;\mathbf{P} = \operatorname{clip}(\mathbf{v}+\lambda\mathbf{s},\ \bm{\ell},\ \mathbf{u})\;$
+for a \emph{single} number $\lambda$.
+\end{quote}
+
+\noindent\textbf{Proof.} Write $\delta_i = P_i - v_i$. The problem is
+\[
+\min \sum_i \delta_i^{2}
+\quad\text{subject to}\quad
+\sum_i s_i\delta_i = c,
+\qquad
+\ell_i - v_i \le \delta_i \le u_i - v_i .
+\]
+Call a coordinate \textbf{free} if $\delta_i$ is strictly between its bounds, and
+\textbf{stuck} otherwise.
+
+Take two free coordinates $i$ and $j$ and nudge them against each other:
+\[
+\delta_i \to \delta_i + \varepsilon s_i,
+\qquad
+\delta_j \to \delta_j - \varepsilon s_j .
+\]
+For small enough $\varepsilon$ of either sign this stays inside the bounds, because
+both were strictly inside. It also keeps Rule 1, since
+\[
+\Delta\Bigl(\sum_k s_k\delta_k\Bigr)
+= s_i(\varepsilon s_i) - s_j(\varepsilon s_j)
+= \varepsilon\,(s_i^{2}-s_j^{2})
+= \varepsilon\,(1-1) = 0 \qquad\text{since } s_i^{2}=s_j^{2}=1 .
+\]
+The cost changes by
+\[
+(\delta_i+\varepsilon s_i)^{2} + (\delta_j-\varepsilon s_j)^{2} - \delta_i^{2} - \delta_j^{2}
+= 2\varepsilon\,(s_i\delta_i - s_j\delta_j) + \varepsilon^{2}\underbrace{(s_i^{2}+s_j^{2})}_{=\,2}.
+\]
+At a minimum this must be $\ge 0$ for \emph{both} signs of $\varepsilon$. Divide by
+$\varepsilon$ and let $\varepsilon\to0$ from each side: the $\varepsilon^{2}$ term
+disappears and we are left with
+\[
+s_i\delta_i - s_j\delta_j \ge 0
+\quad\text{and}\quad
+s_i\delta_i - s_j\delta_j \le 0
+\qquad\Longrightarrow\qquad
+s_i\delta_i = s_j\delta_j .
+\]
+So \emph{all free coordinates share one common value} of $s_i\delta_i$; call it
+$\lambda$. Multiplying by $s_i$ and using $s_i^{2}=1$,
+\[
+\delta_i = \lambda s_i
+\qquad\Longrightarrow\qquad
+P_i = v_i + \lambda s_i \quad\text{for every free } i .
+\]
+A stuck coordinate sits at whichever bound it hit, which is precisely what
+$\operatorname{clip}$ returns. Hence
+$\mathbf{P}=\operatorname{clip}(\mathbf{v}+\lambda\mathbf{s},\bm{\ell},\mathbf{u})$.
+\hfill$\blacksquare$
+
+\paragraph{Sanity check.} With no bounds active every coordinate is free, so
+$\mathbf{P}=\mathbf{v}+\lambda\mathbf{s}$ --- Section 2 exactly.
+
+\subsection*{Step 2: finding $\lambda$}
+
+$\lambda$ is whatever makes Rule 1 hold. Define
+\[
+g(\lambda) = \mathbf{s}\cdot\operatorname{clip}(\mathbf{v}+\lambda\mathbf{s},\ \bm{\ell},\ \mathbf{u})
+\]
+and solve $g(\lambda)=d$.
+
+\begin{quote}
+\textbf{Claim.} $g$ is non-decreasing, so the solution is unique.
+\end{quote}
+
+\noindent\textbf{Proof.} Look at one term,
+$s_i\operatorname{clip}(v_i+\lambda s_i,\ \ell_i,\ u_i)$, and take $\lambda_1<\lambda_2$.
+
+\emph{If $s_i=+1$:} the inside goes $v_i+\lambda_1 \le v_i+\lambda_2$. Clipping is
+non-decreasing (it is the identity in the middle and constant outside), so
+$\operatorname{clip}(v_i+\lambda_1)\le\operatorname{clip}(v_i+\lambda_2)$.
+Multiplying by $+1$ keeps the inequality.
+
+\emph{If $s_i=-1$:} the inside goes $v_i-\lambda_1 \ge v_i-\lambda_2$, so
+$\operatorname{clip}(v_i-\lambda_1)\ge\operatorname{clip}(v_i-\lambda_2)$.
+Multiplying by $-1$ reverses it, giving $\le$ again.
+
+Every term is non-decreasing, so $g$ is. A non-decreasing function meets the level
+$d$ on at most one interval, so $\lambda$ is essentially unique and can be found by
+bisection. \hfill$\blacksquare$
+
+\subsection*{Step 3: the answer}
+\[
+\boxed{\;\mathbf{P} = \Pi_C(\mathbf{v}) = \operatorname{clip}(\mathbf{v}+\lambda^\star\mathbf{s},\ \bm{\ell},\ \mathbf{u})\;}
+\]
+
+\paragraph{Shortcut instead of bisection.} Once the stuck set is known, the free
+coordinates satisfy $P_i=v_i+\lambda s_i$, so substituting into Rule 1 and solving
+gives $\lambda$ in closed form. With $F$ the free set and $m=|F|$,
+\[
+d = \sum_{i\notin F} s_iP_i + \sum_{i\in F} s_i(v_i+\lambda s_i)
+  = \sum_{i\notin F} s_iP_i + \sum_{i\in F} s_iv_i + \lambda m
+\;\Longrightarrow\;
+\lambda = \frac{d-\sum_{i\notin F}s_iP_i-\sum_{i\in F}s_iv_i}{m}.
+\]
+This is the same expansion as Section 2 with the stuck coordinates moved across.
+
+\section{A worked example with three generators}
+
+Take $n=3$, $\mathbf{s}=(1,1,-1)$, $d=10$, every generator in $[0,10]$, and
+\[
+\mathbf{v}=(12,\;1,\;1).
+\]
+It fails twice: $v_1=12$ is above its ceiling, and
+$\mathbf{s}\cdot\mathbf{v}=12+1-1=12$, overshooting $d=10$ by $2$. Here
+$\|\mathbf{s}\|^{2}=3$.
+
+\subsection*{HardNet}
+
+Ignoring the box, $\lambda = \dfrac{10-12}{3} = -\dfrac{2}{3}$ and
+\[
+\mathbf{v}+\lambda\mathbf{s} = \left(12-\tfrac23,\ 1-\tfrac23,\ 1+\tfrac23\right)
+= (11.33,\ 0.33,\ 1.67).
+\]
+The first coordinate exceeds $10$, so it clips: $P_1=10$, stuck. The free set is
+$\{2,3\}$, $m=2$, and the shortcut gives
+\[
+\lambda = \frac{10 - (1)(10) - \bigl[(1)(1)+(-1)(1)\bigr]}{2} = \frac{0}{2} = 0,
+\qquad
+\mathbf{P} = (10,\ 1,\ 1).
+\]
+Check $10+1-1=10$ \checkmark, all inside $[0,10]$ \checkmark, and
+$\|\mathbf{P}-\mathbf{v}\| = \|(-2,0,0)\| = 2$.
+
+\subsection*{RAYEN}
+
+Anchor $\mathbf{a}=(5,5,0)$, legal since $5+5-0=10$. Then
+\[
+\mathbf{r} = (7,\,-4,\,1), \qquad \mathbf{s}\cdot\mathbf{r} = 2,
+\qquad
+\mathbf{r}' = \mathbf{r} - \tfrac{2}{3}\mathbf{s}
+= \left(\tfrac{19}{3},\ -\tfrac{14}{3},\ \tfrac{5}{3}\right),
+\qquad \mathbf{s}\cdot\mathbf{r}' = 0\ \checkmark
+\]
+Walls:
+\[
+t_1=\frac{10-5}{19/3}=\frac{15}{19}\approx0.789,
+\qquad
+t_2=\frac{5-0}{14/3}=\frac{15}{14}\approx1.071,
+\qquad
+t_3=\frac{10-0}{5/3}=6 .
+\]
+So $t^\star=\tfrac{15}{19}$ and
+\[
+\mathbf{P} = (5,5,0)+\tfrac{15}{19}\left(\tfrac{19}{3},-\tfrac{14}{3},\tfrac{5}{3}\right)
+= \left(10,\ \tfrac{25}{19},\ \tfrac{25}{19}\right) \approx (10,\ 1.316,\ 1.316),
+\]
+with $\|\mathbf{P}-\mathbf{v}\|\approx 2.049$.
+
+\subsection*{Comparing the two}
+
+Both are legal. HardNet's is closer ($2.000$ against $2.049$) --- necessarily so,
+since being closest is the question it was asked. RAYEN's answer would move if we
+chose a different anchor; HardNet's would not.
+
+\section{Side by side}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & \textbf{RAYEN} & \textbf{HardNet} \\
+\midrule
+what is projected & the direction $\mathbf{r}$, onto $\mathbf{s}^{\perp}$ & the point $\mathbf{v}$, onto $C$ \\
+output equals & $\mathbf{a}+t^\star\Pi_{\mathbf{s}^{\perp}}(\mathbf{r})$ & $\Pi_C(\mathbf{v})$ \\
+needs a legal starting point & yes, the anchor & no \\
+how the shortfall is shared & in proportion to room & equally, $\lambda$ MW each \\
+that sharing rule is & a modelling choice & forced by ``closest'' \\
+answer depends on & anchor \emph{and} guess & guess only \\
+if the guess is already legal & generally moves it & returns it unchanged \\
+extra model outputs & a direction and a step size & the six values \\
+finding the scalar & one formula per wall, then a min & bisection on $g(\lambda)=d$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The one-sentence difference.} RAYEN says \emph{begin somewhere legal and
+move toward the model as far as the rules allow}; HardNet says \emph{of everything
+legal, take whatever is nearest to the model}. Both use projection --- RAYEN on a
+direction, HardNet on the point itself --- and only HardNet's answer is free of a
+choice we made.
+
+\end{document}

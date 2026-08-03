@@ -133,7 +133,7 @@ def rayen_head(raw, pL, pR, nd, return_debug: bool = False):
     sign, rup, rdn, cap = _limits(dev, dt)
     B, N, _ = raw.shape
     dirs, step = raw[..., :6], torch.sigmoid(raw[..., 6])
-    P_prev, outs, alphas = pL, [], []
+    P_prev, outs, alphas, glides, anchors = pL, [], [], [], []
     for j in range(N):
         k = N - j
         lo, hi = _box(P_prev, pR, k, rup, rdn, cap)
@@ -144,6 +144,7 @@ def rayen_head(raw, pL, pR, nd, return_debug: bool = False):
         room = torch.where(delta * sign > 0, hi - c, c - lo).clamp_min(0.0)
         A = c + (delta / room.sum(-1, keepdim=True).clamp_min(1e-6)) * (room * sign)
         A = torch.minimum(torch.maximum(A, lo), hi)
+        glides.append(c); anchors.append(A)
         # direction: drop channels pinned at a wall and pointing out, then make it
         # tangent to the balance plane over what is left, then scale-free
         r = dirs[:, j]
@@ -165,7 +166,9 @@ def rayen_head(raw, pL, pR, nd, return_debug: bool = False):
     P = torch.stack(outs, 1)
     if not return_debug:
         return P
-    return P, {"alpha_max": torch.stack(alphas, 1), "step": step}
+    return P, {"alpha_max": torch.stack(alphas, 1), "step": step,
+               "glide": torch.stack(glides, 1),      # (B,N,6) stage 1, before the snap
+               "anchor": torch.stack(anchors, 1)}    # (B,N,6) stage 2, what the ray starts from
 
 
 HEADS = {"rayen": (rayen_head, 7), "hardnet": (hardnet_head, 6),

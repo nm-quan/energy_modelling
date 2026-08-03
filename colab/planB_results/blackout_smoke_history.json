@@ -1,0 +1,16 @@
+{
+ "arm": "blackout",
+ "backbone": "bilstm",
+ "head": "hardnet",
+ "gap": 288,
+ "residual": true,
+ "params": 1222664,
+ "best_val": 4.702362537384033,
+ "epochs_run": 1,
+ "train": [
+  2.2577660232782364
+ ],
+ "val": [
+  4.702362537384033
+ ]
+}
