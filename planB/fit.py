@@ -43,6 +43,7 @@ GD.NPZ = ROOT / "data" / "preprocessed" / "hist" / "5min" / "net_dispatch_ren" /
 from gap_data import load_flats, TARGETS, SIGN, TARGET_FEAT_IDX        # noqa: E402
 from nets import (BiLSTMImputer, BRITSImputer, SAITSImputer,            # noqa: E402
                   build_delta, n_params)
+import heads as HD                                                     # noqa: E402
 from heads import HEADS                                                # noqa: E402
 
 OUT = HERE / "results"
@@ -59,6 +60,7 @@ ARMS = {
     "brits_rayen":   ("brits",  "rayen",   36),
     "blackout":      ("bilstm", "hardnet", 288),
     "saits":         ("saits",  "hardnet", 36),
+    "hardnet_alloc": ("bilstm", "hardnet_alloc", 36),
 }
 BACKBONES = {"bilstm": BiLSTMImputer, "brits": BRITSImputer, "saits": SAITSImputer}
 
@@ -117,7 +119,60 @@ def flats_by_date(f, lo, hi):
     return X, Y, d.index
 
 
-def build(f, starts, split, gap=GAP, flats=None):
+ND_FEAT, DEM_FEAT = 6, 7          # net_demand, demand_mw columns of feat_cols
+
+
+def response_targets(P, h=GAP, W=36):
+    """Per-timestep marginal response a(t) (T,6) from history, by local OLS.
+
+        dP_i(t) = P_i(t+h) - P_i(t),   dnd(t) = nd(t+h) - nd(t),   nd = SIGN.P
+        a_i(t)  = sum_{|u-t|<=W} dP_i(u) dnd(u) / sum dnd(u)^2
+
+    This is the supervision the counterfactual has no label for. Two properties
+    make it the right target rather than a hand-picked constant:
+
+      * sum_i s_i a_i(t) = 1 EXACTLY and for free -- sum_i s_i dP_i = dnd is the
+        balance identity, so the numerator sums to sum dnd^2. The target is
+        therefore always consistent with what the head already guarantees.
+      * it is state-conditional. At W=+-36 (3h) the estimate at 08:00 is
+        coal 0.53 / hydro 0.25; at 20:00 it is coal 0.23 / hydro 0.45 / ocgt 0.14
+        -- the real merit-order shift into the evening peak. Pooled over all
+        history it reproduces dispatch_study Study A to ~2pp.
+
+    Widening W washes the conditioning out: at W=+-288 (24h) the between-hour
+    spread collapses to <0.01 and the target IS a constant. Keep W small.
+    """
+    nd = P @ SIGN
+    dP = np.zeros_like(P); dnd = np.zeros(len(P))
+    dP[:-h] = P[h:] - P[:-h]; dnd[:-h] = nd[h:] - nd[:-h]
+    cy = np.vstack([np.zeros(6), np.cumsum(dP * dnd[:, None], 0)])
+    cx = np.concatenate([[0.0], np.cumsum(dnd * dnd)])
+    lo = np.clip(np.arange(len(P)) - W, 0, len(P))
+    hi = np.clip(np.arange(len(P)) + W + 1, 0, len(P))
+    return (cy[hi] - cy[lo]) / np.maximum(cx[hi] - cx[lo], 1e-6)[:, None]
+
+
+def resp_by_date(lo, hi, h=GAP, W=36):
+    """response_targets over the FULL table, then sliced -- so the h-step
+    lookahead and the local window are never truncated at the range edges."""
+    import pandas as pd
+    t = pd.read_parquet(TABLE)
+    a = response_targets(t[TARGETS].values.astype(np.float64), h=h, W=W)
+    m = ((t.index >= pd.Timestamp(lo, tz=t.index.tz))
+         & (t.index <= pd.Timestamp(hi, tz=t.index.tz)))
+    return a[m].astype(np.float32)
+
+
+def apply_residual(d_raw, interp):
+    """The interp skeleton is a DISPATCH LEVEL, so it applies to the first 6
+    outputs only. Anything after them is a logit -- rayen's step, or
+    hardnet_alloc's 6 allocation logits -- and passes through untouched."""
+    if d_raw.shape[-1] == 6:
+        return d_raw + interp
+    return torch.cat([d_raw[..., :6] + interp, d_raw[..., 6:]], -1)
+
+
+def build(f, starts, split, gap=GAP, flats=None, resp=None):
     Xflat, Yflat = (flats if flats is not None else
                     (f.Xtr, f.Ytr) if split == "train" else
                     (f.Xva, f.Yva) if split == "val" else (f.Xte, f.Yte))
@@ -140,19 +195,54 @@ def build(f, starts, split, gap=GAP, flats=None):
     tt = (np.arange(1, gap + 1) / (gap + 1))[None, :, None].astype(np.float32)
     pLz, pRz = Yflat[starts + gs - 1], Yflat[starts + ge]
     interp = (pLz[:, None] + tt * (pRz - pLz)[:, None]).astype(np.float32)
-    return {"X": X, "mask": mask, "Y": Y, "C": Cw.astype(np.float32), "interp": interp,
-            "pL": f.y_to_mw(Yflat[starts + gs - 1]).astype(np.float32),
-            "pR": f.y_to_mw(Yflat[starts + ge]).astype(np.float32),
-            "nd": ((Y * f.y_scale + f.y_mean) @ SIGN).astype(np.float32),
-            "c_mean": cm, "c_scale": cs}
+    out = {"X": X, "mask": mask, "Y": Y, "C": Cw.astype(np.float32), "interp": interp,
+           "pL": f.y_to_mw(Yflat[starts + gs - 1]).astype(np.float32),
+           "pR": f.y_to_mw(Yflat[starts + ge]).astype(np.float32),
+           "nd": ((Y * f.y_scale + f.y_mean) @ SIGN).astype(np.float32),
+           "c_mean": cm, "c_scale": cs}
+    if resp is not None:
+        # demand_mw inside the gap, in MW -- the perturbation is q * demand, the
+        # same quantity FixedPercentageShift moves in the counterfactual.
+        out["dem"] = (X[:, gs:ge, DEM_FEAT] * f.x_scale[DEM_FEAT]
+                      + f.x_mean[DEM_FEAT]).astype(np.float32)
+        # one response target per window: the mean over its gap steps
+        out["a"] = np.stack([resp[s + gs:s + ge].mean(0) for s in starts])
+        out["a_step"] = np.stack([resp[s + gs:s + ge] for s in starts])   # (n,G,6)
+    return out
 
 
-def sample(f, n, split, seed, gap=GAP, flats=None):
+def peak_start_pool(index, n_starts, gap=GAP, hours=(17, 18)):
+    """Start positions whose masked GAP opens inside `hours`.
+
+    The default (17,18) brackets the 18:00-21:00 evaluation window: gaps run from
+    17:00-20:00 through 18:55-21:55. Returns an int array of valid starts.
+
+    Why this and not a sliding window: coverage is already ~11x per timestep and
+    uniform over hour of day (quick_findings/planb_head_vs_network/coverage.py), so
+    the peak is not UNSEEN -- it is 12.2% of the gradient because it is 12.5% of
+    the clock. Stride-1 sliding keeps that ratio; over-drawing peak windows does
+    not.
+    """
+    gs = np.arange(n_starts) + CTX                      # gap opens here
+    hr = index.hour.values[gs]
+    return np.flatnonzero((hr >= hours[0]) & (hr <= hours[1]))
+
+
+def sample(f, n, split, seed, gap=GAP, flats=None, index=None, peak_frac=0.0,
+           peak_hours=(17, 18), peak_only=False, resp=None):
     Xflat = (flats[0] if flats is not None else
              f.Xtr if split == "train" else f.Xva)
+    n_starts = Xflat.shape[0] - (2 * CTX + gap)
     rng = np.random.default_rng(seed)
-    return build(f, rng.integers(0, Xflat.shape[0] - (2 * CTX + gap), size=n),
-                 split, gap, flats)
+    if (peak_frac > 0.0 or peak_only) and index is not None:
+        pool = peak_start_pool(index, n_starts, gap, peak_hours)
+        n_pk = n if peak_only else int(round(n * peak_frac))
+        starts = np.concatenate([rng.choice(pool, size=n_pk, replace=True),
+                                 rng.integers(0, n_starts, size=n - n_pk)])
+        rng.shuffle(starts)
+    else:
+        starts = rng.integers(0, n_starts, size=n)
+    return build(f, starts, split, gap, flats, resp=resp)
 
 
 def main():
@@ -200,6 +290,51 @@ def main():
                          "npz splits, so it is built from the table with the npz "
                          "scalers.")
     ap.add_argument("--val-range", nargs=2, metavar=("FROM", "TO"), default=None)
+    ap.add_argument("--peak-frac", type=float, default=0.0,
+                    help="fraction of TRAIN windows forced to open inside "
+                         "--peak-hours. 0 (default) is the uniform sampler every "
+                         "existing arm used. Needs a date range so the index is "
+                         "available. Coverage is NOT the reason to use this -- the "
+                         "uniform sampler already masks every timestep ~11x; this "
+                         "changes the peak's SHARE OF THE GRADIENT (12.2% -> frac).")
+    ap.add_argument("--peak-hours", nargs=2, type=int, default=(17, 18),
+                    metavar=("FROM", "TO"),
+                    help="hour range in which the masked gap OPENS. Default 17 18 "
+                         "brackets the 18:00-21:00 peak_eval window.")
+    ap.add_argument("--pert-weight", type=float, default=0.0,
+                    help="weight on the PERTURBATION loss. 0 (default) is off. "
+                         "Runs a second forward with net demand shifted by "
+                         "--pert-q inside the gap and supervises the resulting "
+                         "response SHARES against the local marginal response "
+                         "measured from history (response_targets). This is the "
+                         "only term in the objective that ever sees a demand "
+                         "CHANGE -- ordinary reconstruction cannot, because "
+                         "nd == SIGN.P holds by identity on historical data.")
+    ap.add_argument("--soc", action="store_true",
+                    help="enforce the battery SOC swing inside the head "
+                         "(heads.set_soc). Folds into the same per-step box, so "
+                         "balance/ramp/cap stay exact. Over a 3 h gap with the "
+                         "full reservoir it rarely binds -- it matters at "
+                         "inference when seeded with the day's history.")
+    ap.add_argument("--alloc-weight", type=float, default=0.0,
+                    help="weight on the ALLOCATION cross-entropy for the "
+                         "hardnet_alloc head. 0 (default) = UNSUPERVISED: the "
+                         "shares are learned from reconstruction alone, via the "
+                         "corrections the projection makes on historical windows. "
+                         ">0 additionally supervises them against the measured "
+                         "marginal response (response_targets).")
+    ap.add_argument("--pert-q", type=float, default=0.024,
+                    help="demand shift as a fraction, applied over the gap. "
+                         "0.024 matches the counterfactual protocol's rebound.")
+    ap.add_argument("--resp-w", type=int, default=36,
+                    help="half-width (steps) of the local regression for the "
+                         "response target. Small keeps it state-conditional: at "
+                         "+-288 the between-hour spread collapses to <0.01 and "
+                         "the target degenerates into a constant.")
+    ap.add_argument("--early-on", default="global", choices=["global", "peak"],
+                    help="which validation loss drives best-checkpoint and "
+                         "patience. 'global' (default) is a whole-clock average in "
+                         "which the evening peak is ~12% of the cells.")
     ap.add_argument("--tag", default=None, help="checkpoint name override")
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
@@ -218,9 +353,10 @@ def main():
               f"tf32 on  amp={args.amp}  compile={args.compile}", flush=True)
     backbone, head_name, gap = ARMS[args.arm]
     head_fn, n_disp = HEADS[head_name]
+    soc_cap = HD.set_soc(True if args.soc else None)
     # the rayen head consumes a DIRECTION, not a dispatch level, so the interp
     # residual has no meaning there -- its anchor already plays that role.
-    residual = (not args.no_residual) and n_disp == 6
+    residual = (not args.no_residual) and n_disp in (6, 12)
     tag = args.tag or (args.arm + ("" if args.loss == "mse" else f"_{args.loss}")
                        + ("_smoke" if args.smoke else ""))
 
@@ -235,11 +371,35 @@ def main():
         print(f"val   window {(args.val_range or args.train_range)[0]} -> "
               f"{(args.val_range or args.train_range)[1]}  {len(vaf[2]):,} rows "
               f"({len(vaf[2])//288} days)", flush=True)
-        tr = sample(f, args.n_train, "train", args.seed, gap, trf[:2])
-        va = sample(f, args.n_val, "val", args.seed + 777, gap, vaf[:2])
+        need_resp = args.pert_weight > 0 or args.alloc_weight > 0
+        rs_tr = (resp_by_date(*args.train_range, h=gap, W=args.resp_w)
+                 if need_resp else None)
+        rs_va = (resp_by_date(*(args.val_range or args.train_range), h=gap,
+                              W=args.resp_w) if need_resp else None)
+        tr = sample(f, args.n_train, "train", args.seed, gap, trf[:2],
+                    index=trf[2], peak_frac=args.peak_frac,
+                    peak_hours=tuple(args.peak_hours), resp=rs_tr)
+        va = sample(f, args.n_val, "val", args.seed + 777, gap, vaf[:2],
+                    resp=rs_va)
+        # a SECOND validation set of peak-only windows, always built when the
+        # index is available. The global val loss is a whole-clock average in
+        # which the evening peak is ~12% of the cells, so it can improve while
+        # the peak gets worse -- which is exactly what peak_18_21.md shows.
+        va_pk = sample(f, args.n_val, "val", args.seed + 778, gap, vaf[:2],
+                       index=vaf[2], peak_only=True,
+                       peak_hours=tuple(args.peak_hours))
+        if args.peak_frac > 0:
+            print(f"peak sampling: {args.peak_frac:.0%} of train windows open in "
+                  f"{args.peak_hours[0]:02d}:00-{args.peak_hours[1]:02d}:59 "
+                  f"(uniform would be {100*(args.peak_hours[1]-args.peak_hours[0]+1)/24:.1f}%)",
+                  flush=True)
     else:
         tr = sample(f, args.n_train, "train", args.seed, gap)
         va = sample(f, args.n_val, "val", args.seed + 777, gap)
+        va_pk = None
+        if args.peak_frac > 0 or args.early_on == "peak":
+            raise SystemExit("--peak-frac/--early-on peak need --train-range "
+                             "(the npz splits carry no datetime index)")
 
     if backbone == "bilstm":
         model = BiLSTMImputer(nfeat, n_disp, hidden=args.hidden).to(dev)
@@ -247,7 +407,7 @@ def main():
         model = BACKBONES[backbone](nfeat, TARGET_FEAT_IDX, CURT_COLS, n_disp,
                                     hidden=args.hidden).to(dev)
     print(f"arm={args.arm}  backbone={backbone}  head={head_name}  gap={gap}  "
-          f"residual={residual}  loss={args.loss}  outputs={n_disp}  hidden={args.hidden}  "
+          f"residual={residual}  loss={args.loss}  soc={soc_cap}  outputs={n_disp}  hidden={args.hidden}  "
           f"params={n_params(model):,}  device={dev}", flush=True)
     print(f"windows: train {len(tr['X']):,} val {len(va['X']):,} "
           f"({time.time()-t0:.0f}s)", flush=True)
@@ -259,6 +419,7 @@ def main():
         return {k: (torch.from_numpy(v).to(dev) if isinstance(v, np.ndarray)
                     and v.ndim > 1 else v) for k, v in dd.items()}
     tr, va = to_dev(tr), to_dev(va)
+    va_pk = to_dev(va_pk) if va_pk is not None else None
 
     ys_m = torch.tensor(f.y_mean, dtype=torch.float32, device=dev)
     ys_s = torch.tensor(f.y_scale, dtype=torch.float32, device=dev)
@@ -282,53 +443,104 @@ def main():
         c_raw = c_raw[:, CTX:CTX + gap].float()
         curt = curt_activation(c_raw, c_m, c_s)
         if residual:                       # deviation from the interp skeleton
-            d_raw = d_raw + b["interp"]
+            d_raw = apply_residual(d_raw, b["interp"])
         if head_fn is None:
-            return d_raw[..., :6], curt
+            return d_raw[..., :6], curt, d_raw
         F_ = (d_raw * ys_s + ys_m if n_disp == 6 else
               torch.cat([d_raw[..., :6] * ys_s + ys_m, d_raw[..., 6:]], -1))
         P = head_fn(F_, b["pL"], b["pR"], b["nd"])
-        return (P - ys_m) / ys_s, curt
+        return (P - ys_m) / ys_s, curt, d_raw
 
     all_scale = torch.cat([ys_s, c_s])           # (8,) MW per z-unit
     all_mean = torch.cat([ys_m, c_m])
+    xs_nd = float(f.x_scale[ND_FEAT]); xs_dem = float(f.x_scale[DEM_FEAT])
 
-    def loss_of(b):
-        pz, cmw = forward(b)
+    def pert_from(b, pz0):
+        """Second forward with net demand shifted by q*demand INSIDE the gap;
+        supervise the resulting response shares against the measured local
+        marginal response.
+
+        The head already forces sum_i s_i dE_i = sum delta, and the target obeys
+        sum_i s_i a_i = 1 by the balance identity, so the two are consistent and
+        the term is drivable to zero. What it teaches is the ALLOCATION of a
+        demand change -- the one thing gap reconstruction can never supply,
+        because on historical data nd == SIGN.P and the change is always zero.
+        """
+        g0, g1 = CTX, CTX + gap
+        d = args.pert_q * b["dem"]                       # (B,G) MW, per step
+        X2 = b["X"].clone()
+        X2[:, g0:g1, ND_FEAT] += d / xs_nd               # both features are z-scored
+        X2[:, g0:g1, DEM_FEAT] += d / xs_dem
+        b2 = dict(b); b2["X"] = X2; b2["nd"] = b["nd"] + d
+        pz1, _, _ = forward(b2)
+        dE = ((pz1 - pz0) * ys_s).sum(1)                 # (B,6) MW-steps of response
+        share = dE / d.sum(1, keepdim=True).clamp_min(1e-3)
+        return ((share - b["a"]) ** 2).mean()
+
+    sgn_t = torch.tensor(SIGN, dtype=torch.float32, device=dev)
+
+    def alloc_loss(b, d_raw):
+        """Cross-entropy between the head's predicted allocation and the measured
+        one. Target is s_i*a_i -- the fraction of a demand change channel i
+        actually absorbed -- clamped at 0 and renormalised, so it is a point on
+        the same simplex the softmax lives on. Used only for the SUPERVISED
+        variant; with --alloc-weight 0 the shares are learned from the
+        reconstruction loss alone, through the corrections the projection makes
+        on ordinary historical windows."""
+        p_ = torch.softmax(d_raw[..., 6:], -1)
+        tgt = (b["a_step"] * sgn_t).clamp_min(0.0)
+        tgt = tgt / tgt.sum(-1, keepdim=True).clamp_min(1e-6)
+        return -(tgt * p_.clamp_min(1e-8).log()).sum(-1).mean()
+
+    def loss_of(b, pert=True):
+        # `pert` gates every TRAINING-ONLY auxiliary term (perturbation and
+        # allocation). val() passes pert=False so the reported val loss stays the
+        # same quantity every other arm reports.
+        pz, cmw, d_raw = forward(b)
+        extra = (args.pert_weight * pert_from(b, pz)
+                 if (pert and args.pert_weight > 0 and "a" in b) else 0.0)
+        if pert and args.alloc_weight > 0 and n_disp == 12 and "a_step" in b:
+            extra = extra + args.alloc_weight * alloc_loss(b, d_raw)
         cz_p = (cmw - c_m) / c_s
         pred_z = torch.cat([pz, cz_p], -1)                       # (B,G,8) z
         true_z = torch.cat([b["Y"], (b["C"] - c_m) / c_s], -1)
         if args.loss == "mse":
             # one MSE over all eight z-scored channels. Identical to summing the
             # per-source MSEs up to a factor of 8, which Adam absorbs.
-            return ((pred_z - true_z) ** 2).mean()
+            return ((pred_z - true_z) ** 2).mean() + extra
         err_mw = (pred_z - true_z) * all_scale                   # back to MW
         if args.loss == "sum_mw":
             # per-source MSE in MW, summed: channels weighted by scale^2, so coal
             # dominates battery ~170x. This is what "sum the per-source errors"
             # means if you do NOT normalise first.
-            return (err_mw ** 2).mean((0, 1)).sum()
+            return (err_mw ** 2).mean((0, 1)).sum() + extra
         # wape: each source scored against its own total, so a 50 MW battery error
         # and a 700 MW coal error are comparable
         true_mw = true_z * all_scale + all_mean
         num = err_mw.abs().sum((0, 1))
         den = true_mw.abs().sum((0, 1)).clamp_min(1.0)
-        return (num / den).mean()
+        return (num / den).mean() + extra
 
-    def val():
-        model.eval(); s = n = 0.0
+    def val(ds=None, want_resp=False):
+        ds = va if ds is None else ds
+        model.eval(); s = n = r = 0.0
         with torch.no_grad():
             vb = max(256, args.batch)
-            for i in range(0, len(va["X"]), vb):
+            for i in range(0, len(ds["X"]), vb):
                 b = {k: (v[i:i + vb] if torch.is_tensor(v) and v.dim() > 1 else v)
-                     for k, v in va.items()}
-                s += float(loss_of(b)) * len(b["X"]); n += len(b["X"])
-        model.train(); return s / n
+                     for k, v in ds.items()}
+                s += float(loss_of(b, pert=False)) * len(b["X"])
+                if want_resp and "a" in b:
+                    r += float(pert_from(b, forward(b)[0])) * len(b["X"])
+                n += len(b["X"])
+        model.train()
+        return (s / n, r / n) if want_resp else s / n
 
-    hist = {"train": [], "val": []}
+    hist = {"train": [], "val": [], "val_peak": []}
     OUT.mkdir(parents=True, exist_ok=True)
     best, best_state, waited = float("inf"), None, 0
-    print(f"  val before training: {val():.4f}", flush=True)
+    print(f"  val before training: {val():.4f}"
+          + (f"  peak {val(va_pk):.4f}" if va_pk is not None else ""), flush=True)
     for ep in range(1, args.epochs + 1):
         te0 = time.time(); s = n = 0.0
         perm = torch.from_numpy(rng.permutation(len(tr["X"]))).to(dev)
@@ -342,17 +554,24 @@ def main():
             if (i // args.batch) % 60 == 0:
                 print(f"    batch {i//args.batch:4d}/{len(perm)//args.batch} "
                       f"loss {float(l.detach()):.4f}", flush=True)
-        v = val(); hist["train"].append(s / n); hist["val"].append(v)
+        vv = val(want_resp=args.pert_weight > 0)
+        v, vr = vv if args.pert_weight > 0 else (vv, float("nan"))
+        vp = val(va_pk) if va_pk is not None else float("nan")
+        hist["train"].append(s / n); hist["val"].append(v)
+        hist["val_peak"].append(vp); hist.setdefault("val_resp", []).append(vr)
+        sel = vp if args.early_on == "peak" else v      # what drives the checkpoint
         stop = False
-        if v < best - 1e-6:
-            best, waited = v, 0
+        if sel < best - 1e-6:
+            best, waited = sel, 0
             best_state = {k: t.detach().clone()
                           for k, t in model.state_dict().items()}
         else:
             waited += 1
             stop = args.patience > 0 and waited >= args.patience
-        print(f"  ep{ep:03d} train {s/n:.4f}  val {v:.4f}  "
-              f"(best {best:.4f}, waited {waited}"
+        print(f"  ep{ep:03d} train {s/n:.4f}  val {v:.4f}"
+              + (f"  val_peak {vp:.4f}" if va_pk is not None else "")
+              + (f"  val_resp {vr:.4f}" if args.pert_weight > 0 else "")
+              + f"  (best[{args.early_on}] {best:.4f}, waited {waited}"
               f"{'/' + str(args.patience) if args.patience else ''})  "
               f"({time.time()-te0:.0f}s){'  EARLY STOP' if stop else ''}", flush=True)
         # persist every epoch so a dropped Colab session loses at most one
@@ -360,6 +579,12 @@ def main():
             {"arm": args.arm, "backbone": backbone, "head": head_name,
              "gap": gap, "residual": residual, "loss": args.loss,
              "params": n_params(model),
+             "train_range": args.train_range, "val_range": args.val_range,
+             "peak_frac": args.peak_frac, "peak_hours": list(args.peak_hours),
+             "early_on": args.early_on, "pert_weight": args.pert_weight,
+             "pert_q": args.pert_q, "resp_w": args.resp_w,
+                "alloc_weight": args.alloc_weight,
+                "soc": soc_cap,
              "best_val": best, "epochs_run": ep, **hist}, indent=1))
         if stop:
             break
@@ -372,6 +597,14 @@ def main():
     torch.save({"state": sd, "arm": args.arm, "head": head_name,
                 "backbone": backbone, "gap": gap, "residual": residual,
                 "loss": args.loss,
+                # provenance: without these a checkpoint's training window is
+                # unrecoverable (hardnet_2025 has this problem).
+                "train_range": args.train_range, "val_range": args.val_range,
+                "peak_frac": args.peak_frac, "peak_hours": list(args.peak_hours),
+                "early_on": args.early_on, "pert_weight": args.pert_weight,
+                "pert_q": args.pert_q, "resp_w": args.resp_w,
+                "alloc_weight": args.alloc_weight,
+                "soc": soc_cap,
                 "hidden": args.hidden, "n_disp": n_disp}, OUT / f"{tag}.pt")
     print(f"\nbest val {best:.4f} -> wrote {OUT/f'{tag}.pt'}")
 

@@ -48,7 +48,7 @@ from common import COLORS, LABEL, INK, MUTED, FUELS                    # noqa: E
 from nets import build_delta                                           # noqa: E402
 from heads import HEADS                                                # noqa: E402
 import limits as LIM                                                   # noqa: E402
-from fit import (curt_activation, CURT_COLS, CTX, GAP,                 # noqa: E402
+from fit import (curt_activation, CURT_COLS, CTX, GAP, apply_residual,                 # noqa: E402
                  ARMS as ARM_SPEC, BACKBONES)
 
 CURT_NAMES = ["wind_curtailment", "solar_curtailment"]
@@ -195,8 +195,8 @@ def main():
             if resid:
                 tt = (np.arange(1, GAP + 1) / (GAP + 1))[None, :, None]
                 pLz = (pL - ym) / ys_; pRz = (pR - ym) / ys_
-                d_raw = d_raw + torch.tensor(
-                    (pLz[None, None] + tt * (pRz - pLz)[None, None]).astype(np.float32))
+                d_raw = apply_residual(d_raw, torch.tensor(
+                    (pLz[None, None] + tt * (pRz - pLz)[None, None]).astype(np.float32)))
             if head_fn is None:
                 P = (d_raw[..., :6] * ys_st + ys_mt)[0].numpy()
             else:

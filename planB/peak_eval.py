@@ -44,8 +44,9 @@ GD.NPZ = ROOT / "data/preprocessed/hist/5min/net_dispatch_ren/prepared.npz"
 from gap_data import load_flats, TARGETS, SIGN, TARGET_FEAT_IDX        # noqa: E402
 from common import COLORS, LABEL, INK, MUTED, FUELS                    # noqa: E402
 from nets import build_delta                                           # noqa: E402
+import heads as HD                                                     # noqa: E402
 from heads import HEADS                                                # noqa: E402
-from fit import (build, curt_activation, CURT_COLS, CTX, GAP,          # noqa: E402
+from fit import (build, curt_activation, CURT_COLS, CTX, GAP, apply_residual,          # noqa: E402
                  ARMS as ARM_SPEC, BACKBONES)
 
 OUT = HERE / "results"
@@ -85,6 +86,7 @@ def run_arm(arm, f, b, nfeat):
     # forcing it on costs unconstrained 106 -> 242 MW and hardnet 120 -> 141.
     # (rayen is residual-free either way; its head takes a direction, not a level.)
     resid = ck.get("residual", False)
+    HD.set_soc(ck.get("soc"))          # reproduce the head the checkpoint trained with
     c_m, c_s = torch.tensor(b["c_mean"]), torch.tensor(b["c_scale"])
     ys_m = torch.tensor(f.y_mean, dtype=torch.float32)
     ys_s = torch.tensor(f.y_scale, dtype=torch.float32)
@@ -99,7 +101,7 @@ def run_arm(arm, f, b, nfeat):
             d_raw, c_raw = d_raw[:, CTX:CTX + GAP], c_raw[:, CTX:CTX + GAP]
             curt = curt_activation(c_raw, c_m, c_s)
             if resid:
-                d_raw = d_raw + torch.from_numpy(b["interp"][sl])
+                d_raw = apply_residual(d_raw, torch.from_numpy(b["interp"][sl]))
             if head_fn is None:
                 P = d_raw[..., :6] * ys_s + ys_m
             else:

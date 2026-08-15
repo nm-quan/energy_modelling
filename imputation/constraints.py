@@ -138,24 +138,101 @@ def _ramp_project(P, pL, pR, rup, rdn):
     return torch.stack(back, dim=1)                       # (B,N,6)
 
 
-def _soc_project(P, cap_eff):
+def _soc_project(P, cap_eff, carry=None):
     """Damp battery throughput so the cumulative-energy SWING fits the pack. With
     SOC unknown at t=0, feasibility <=> swing(cum energy) <= capacity (check_caps).
     Scaling both battery channels by cap_eff/swing scales the swing to cap_eff; a
-    no-op (scale=1) whenever SOC is non-binding, which is every test day."""
+    no-op (scale=1) whenever SOC is non-binding, which is every single test day.
+
+    `carry` = (E0, lo_seen, hi_seen), each (B,) MWh, extends the swing across
+    window boundaries. Without it every window restarts the accounting at zero,
+    which makes a RECURSIVE rollout unbounded: each day looks feasible on its own
+    while the chain drifts. Over 7 days the worst real range is 4,010 MWh against
+    a 4,736 MWh pack, so the bound only has teeth once it is carried.
+    """
     chg = P[..., CHG_IDX].clamp_min(0.0)
     dis = P[..., DIS_IDX].clamp_min(0.0)
     dE = (chg * ETA - dis / ETA) * DT                     # (B,N) MWh per step
     E = torch.cumsum(dE, dim=1)
-    Efull = torch.cat([torch.zeros_like(E[:, :1]), E], dim=1)   # include start (0)
-    swing = Efull.max(dim=1).values - Efull.min(dim=1).values   # (B,)
+    if carry is None:
+        Efull = torch.cat([torch.zeros_like(E[:, :1]), E], dim=1)
+        hi = Efull.max(dim=1).values
+        lo = Efull.min(dim=1).values
+    else:
+        E0, lo_seen, hi_seen = (c.to(P.device, P.dtype).view(-1) for c in carry)
+        Efull = torch.cat([E0.view(-1, 1), E0.view(-1, 1) + E], dim=1)
+        hi = torch.maximum(Efull.max(dim=1).values, hi_seen)
+        lo = torch.minimum(Efull.min(dim=1).values, lo_seen)
+    swing = hi - lo                                                   # (B,)
     scale = torch.clamp(cap_eff / (swing + 1e-6), max=1.0).view(-1, 1, 1)
     batt = P[..., CHG_IDX:DIS_IDX + 1] * scale
     return torch.cat([P[..., :CHG_IDX], batt], dim=-1)
 
 
+def soc_state(P, carry=None):
+    """(E_end, lo_seen, hi_seen) after this window, for chaining into the next.
+    Same convention as `_soc_project(carry=...)`."""
+    chg = P[..., CHG_IDX].clamp_min(0.0)
+    dis = P[..., DIS_IDX].clamp_min(0.0)
+    E = torch.cumsum((chg * ETA - dis / ETA) * DT, dim=1)
+    E0 = torch.zeros_like(E[:, 0]) if carry is None else carry[0].to(P.device, P.dtype).view(-1)
+    Efull = torch.cat([E0.view(-1, 1), E0.view(-1, 1) + E], dim=1)
+    hi, lo = Efull.max(dim=1).values, Efull.min(dim=1).values
+    if carry is not None:
+        hi = torch.maximum(hi, carry[2].to(P.device, P.dtype).view(-1))
+        lo = torch.minimum(lo, carry[1].to(P.device, P.dtype).view(-1))
+    return Efull[:, -1], lo, hi
+
+
+def _energy_project(P, target):
+    """Snap the window's NET battery energy to `target` (B,) MWh.
+
+    WHY THIS EXISTS, and why the swing bound in _soc_project does not cover it.
+    A swing bound is blind to a monotone drain: a counterfactual that discharges
+    1,245 MWh/day more than it charges has a daily swing of 1,245 MWh, well inside
+    a 4,736 MWh pack, so _soc_project passes it. Measured on
+    planB/results/counterfactual_fullset.md, which does exactly that and would
+    empty the fleet in under four days.
+
+    THE MAP. Only two of the six channels appear, with coefficients
+    a_chg = +ETA*DT and a_dis = -DT/ETA, so
+
+        sum_t ( chg_t*ETA - dis_t/ETA ) * DT  =  target
+
+    is a single affine equality in P and the Euclidean projection onto it is
+    closed form: P <- P + a * (target - a.P) / ||a||^2, with
+    ||a||^2 = N*DT^2*(ETA^2 + 1/ETA^2).
+
+    IT MUST BE ALTERNATED, NOT APPLIED ONCE. Moving chg and dis changes the net
+    battery power dis-chg, so it breaks the balance plane. The caller's loop
+    re-projects onto balance afterwards, which pushes the compensating MW onto the
+    other channels. Both sets are convex and their intersection is non-empty (the
+    truth lies in it), so POCS converges.
+    """
+    if target is None:
+        return P
+    N = P.shape[1]
+    a_chg, a_dis = ETA * DT, -DT / ETA
+    chg = P[..., CHG_IDX].clamp_min(0.0)
+    dis = P[..., DIS_IDX].clamp_min(0.0)
+    cur = (chg * a_chg + dis * a_dis).sum(dim=1)                   # (B,)
+    resid = (target - cur) / (N * (a_chg ** 2 + a_dis ** 2))       # (B,)
+    out = P.clone()
+    out[..., CHG_IDX] = P[..., CHG_IDX] + a_chg * resid.unsqueeze(-1)
+    out[..., DIS_IDX] = P[..., DIS_IDX] + a_dis * resid.unsqueeze(-1)
+    return out
+
+
+def net_energy(P):
+    """Net battery energy over the window, (B,) MWh. The quantity _energy_project
+    controls and the one a reviewer sums across the whole counterfactual."""
+    chg = P[..., CHG_IDX].clamp_min(0.0)
+    dis = P[..., DIS_IDX].clamp_min(0.0)
+    return ((chg * ETA - dis / ETA) * DT).sum(dim=1)
+
+
 def cyclic_project(P, pL, pR, nd, iters=40, soc=True, free=None, margin_mwh=100.0,
-                   size_aware: bool = False):
+                   size_aware: bool = False, energy_target=None, soc_carry=None):
     """Project raw dispatch P (B,N,6) MW onto {balance}∩{ramp}∩{box}∩{SOC}, with the
     boundaries pL,pR (B,6) pinned and Σ SIGN·P snapped to nd (B,N). Differentiable.
     size_aware: level-proportional balance split (see _balance_project)."""
@@ -171,7 +248,9 @@ def cyclic_project(P, pL, pR, nd, iters=40, soc=True, free=None, margin_mwh=100.
         P = _ramp_project(P, pL, pR, rup, rdn)
         P = torch.minimum(P.clamp_min(0.0), cap)
         if soc:
-            P = _soc_project(P, cap_eff)
+            P = _soc_project(P, cap_eff, carry=soc_carry)
+        if energy_target is not None:
+            P = _energy_project(P, energy_target)
     return P
 
 

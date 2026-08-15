@@ -1,4 +1,4 @@
-# No-model counterfactual fill (NEM-style)
+     # No-model counterfactual fill (NEM-style)
 
 10 days 2026-06-01 .. 2026-06-10, window 11:00–14:00, rebound 2.4% / reduce 2.4%. No neural network. Every rule is measured in `dispatch_study/`.
 

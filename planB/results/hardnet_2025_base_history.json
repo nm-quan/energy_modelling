@@ -1,0 +1,31 @@
+{
+ "arm": "hardnet",
+ "backbone": "bilstm",
+ "head": "hardnet",
+ "gap": 36,
+ "residual": true,
+ "loss": "mse",
+ "params": 1222664,
+ "train_range": [
+  "2025-01-01",
+  "2026-03-31"
+ ],
+ "val_range": null,
+ "peak_frac": 0.0,
+ "peak_hours": [
+  17,
+  18
+ ],
+ "early_on": "global",
+ "best_val": 0.5249244182109832,
+ "epochs_run": 1,
+ "train": [
+  0.6131138895511627
+ ],
+ "val": [
+  0.5249244182109832
+ ],
+ "val_peak": [
+  0.8389175357818603
+ ]
+}

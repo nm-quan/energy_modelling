@@ -26,7 +26,7 @@ from gap_data import load_flats, TARGETS, SIGN, TARGET_FEAT_IDX        # noqa: E
 from nets import build_delta, n_params                                  # noqa: E402
 from heads import HEADS                                                # noqa: E402
 from limits import R_UP, R_DN, CAP                                     # noqa: E402
-from fit import (build, curt_activation, CURT_COLS, CTX, GAP,           # noqa: E402
+from fit import (build, curt_activation, CURT_COLS, CTX, GAP, apply_residual,           # noqa: E402
                  ARMS, BACKBONES)
 
 OUT = HERE / "results"
@@ -92,7 +92,7 @@ def main():
                 d_raw, c_raw = d_raw[:, CTX:CTX + GAP], c_raw[:, CTX:CTX + GAP]
                 curt = curt_activation(c_raw, c_m, c_s)
                 if resid:
-                    d_raw = d_raw + torch.from_numpy(b["interp"][sl])
+                    d_raw = apply_residual(d_raw, torch.from_numpy(b["interp"][sl]))
                 if head_fn is None:
                     P = d_raw[..., :6] * ys_s + ys_m
                 else:

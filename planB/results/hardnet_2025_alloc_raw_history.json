@@ -1,0 +1,38 @@
+{
+ "arm": "hardnet_alloc",
+ "backbone": "bilstm",
+ "head": "hardnet_alloc",
+ "gap": 36,
+ "residual": false,
+ "loss": "mse",
+ "params": 1224974,
+ "train_range": [
+  "2025-01-01",
+  "2026-03-31"
+ ],
+ "val_range": null,
+ "peak_frac": 0.0,
+ "peak_hours": [
+  17,
+  18
+ ],
+ "early_on": "global",
+ "pert_weight": 0.0,
+ "pert_q": 0.024,
+ "resp_w": 36,
+ "alloc_weight": 1.0,
+ "best_val": 0.6403560299873352,
+ "epochs_run": 1,
+ "train": [
+  2.317952519226074
+ ],
+ "val": [
+  0.6403560299873352
+ ],
+ "val_peak": [
+  0.9682342534065247
+ ],
+ "val_resp": [
+  NaN
+ ]
+}
