@@ -1,0 +1,74 @@
+unit_code,facility_name,fueltech,status,capacity_mw,commencement_date,commencement_spec,data_first_seen,year_only_start,no_declared_start,start_from_observation,no_start_at_all,no_capacity
+BERWICK,Berwick,bioenergy_biogas,retired,7.0,1992-01-01,year,,True,False,False,False,False
+BROADMDW,Broadmeadows,bioenergy_biogas,retired,5.0,1993-01-01,year,,True,False,False,False,False
+BROOKLYN,Brooklyn,bioenergy_biogas,operating,3.0,2001-01-01,year,,True,False,False,False,False
+CLAYTON,Clayton,bioenergy_biogas,operating,11.0,1995-01-01,year,,True,False,False,False,False
+CORIO1,Corio,bioenergy_biogas,retired,1.0,1992-01-01,year,,True,False,False,False,False
+HALAMRD1,Hallam Road,bioenergy_biogas,operating,9.0,2007-01-01,year,,True,False,False,False,False
+MORNW,Mornington Disposal,bioenergy_biogas,retired,1.0,2002-01-01,year,,True,False,False,False,False
+SHEP1,Shepparton,bioenergy_biogas,operating,1.0,2009-01-01,year,,True,False,False,False,False
+SVALE1,Springvale,bioenergy_biogas,retired,5.0,1992-01-01,year,,True,False,False,False,False
+TATURA01,Tatura,bioenergy_biogas,operating,1.0,2007-01-01,year,,True,False,False,False,False
+WOLLERT1,Wollert,bioenergy_biogas,operating,7.0,2006-01-01,year,,True,False,False,False,False
+WYNDW,Wyndham,bioenergy_biogas,retired,1.0,2003-01-01,year,,True,False,False,False,False
+HWPS1,Hazelwood,coal_brown,retired,220.0,1964-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS2,Hazelwood,coal_brown,retired,220.0,1965-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS3,Hazelwood,coal_brown,retired,200.0,1966-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS4,Hazelwood,coal_brown,retired,200.0,1967-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS5,Hazelwood,coal_brown,retired,200.0,1968-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS6,Hazelwood,coal_brown,retired,200.0,1969-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS7,Hazelwood,coal_brown,retired,200.0,1970-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HWPS8,Hazelwood,coal_brown,retired,200.0,1971-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LOYYB1,Loy Yang B,coal_brown,operating,600.0,1993-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LOYYB2,Loy Yang B,coal_brown,operating,600.0,1996-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LYA1,Loy Yang A,coal_brown,operating,590.0,1984-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LYA2,Loy Yang A,coal_brown,operating,535.0,1984-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LYA3,Loy Yang A,coal_brown,operating,590.0,1987-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+LYA4,Loy Yang A,coal_brown,operating,580.0,1987-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+MOR1,Energy Brix,coal_brown,retired,90.0,1958-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+MOR2,Energy Brix,coal_brown,retired,30.0,1962-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+MOR3,Energy Brix,coal_brown,retired,75.0,1959-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+YWPS1,Yallourn W,coal_brown,operating,395.0,1973-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+YWPS2,Yallourn W,coal_brown,operating,395.0,1975-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+YWPS3,Yallourn W,coal_brown,operating,405.0,1981-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+YWPS4,Yallourn W,coal_brown,operating,405.0,1982-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+HASTINGS1,Hastings,gas_ocgt,operating,14.33,2024-01-01,year,,True,False,False,False,False
+HASTINGS2,Hastings,gas_ocgt,operating,14.33,2024-01-01,year,,True,False,False,False,False
+HASTINGS3,Hastings,gas_ocgt,operating,14.33,2024-01-01,year,,True,False,False,False,False
+JLA01,Jeeralang A,gas_ocgt,operating,65.0,1979-01-01,year,1998-12-07 08:05:00,True,False,False,False,False
+JLA02,Jeeralang A,gas_ocgt,operating,65.0,1979-01-01,year,1998-12-07 08:45:00,True,False,False,False,False
+JLA03,Jeeralang A,gas_ocgt,operating,65.0,1979-01-01,year,1998-12-07 10:30:00,True,False,False,False,False
+JLA04,Jeeralang A,gas_ocgt,operating,65.0,1979-01-01,year,1998-12-07 08:30:00,True,False,False,False,False
+JLB01,Jeeralang B,gas_ocgt,operating,100.0,1980-01-01,year,1998-12-07 09:20:00,True,False,False,False,False
+JLB02,Jeeralang B,gas_ocgt,operating,100.0,1980-01-01,year,1998-12-07 10:30:00,True,False,False,False,False
+JLB03,Jeeralang B,gas_ocgt,operating,100.0,1980-01-01,year,1998-12-11 10:30:00,True,False,False,False,False
+LONGFORD,Longford,gas_ocgt,operating,46.4,1969-01-01,year,,True,False,False,False,False
+LYGS1,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+LYGS2,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+LYGS3,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+LYGS4,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+LYGS5,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+LYGS6,Valley Power Peaking,gas_ocgt,retired,,2002-01-01,year,2001-12-12 09:05:00,True,False,False,False,True
+VPGS,Valley Power Peaking,gas_ocgt,retired,,2010-01-01,month,2006-01-31 14:35:00,False,False,False,False,True
+BBASEHOS,Ballarat Hospital,gas_recip,retired,3.0,2009-01-01,year,,True,False,False,False,False
+TGNSS1,Traralgon Network Support,gas_recip,operating,10.0,2014-01-01,year,,True,False,False,False,False
+NPS,Newport,gas_steam,operating,510.0,1981-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+CLOVER1,Clover,hydro,retired,14.5,1944-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+CLOVER2,Clover,hydro,retired,14.5,1944-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+EILDON1,Eildon,hydro,operating,60.0,1956-01-01,year,1998-12-07 06:40:00,True,False,False,False,False
+EILDON2,Eildon,hydro,operating,60.0,1956-01-01,year,1998-12-07 06:40:00,True,False,False,False,False
+EILDON3,Eildon,hydro,operating,5.0,1994-01-01,year,,True,False,False,False,False
+GLENMAG1,Glenmaggie,hydro,operating,4.0,1994-01-01,year,,True,False,False,False,False
+HLMSEW01,Hallam,hydro,operating,1.0,2008-01-01,year,,True,False,False,False,False
+HUMEV,Hume,hydro,commissioning,70.0,1957-01-01,year,1998-12-07 02:40:00,True,False,False,False,False
+MCKAY1,Bogong / Mackay,hydro,operating,300.0,1960-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+MCKAY2,Bogong / Mackay,hydro,retired,53.0,1960-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+MURRAY,Murray,hydro,operating,1575.0,1967-01-01,year,2001-06-22 11:35:00,True,False,False,False,False
+RUBICON,Rubicon,hydro,commissioning,13.0,1922-01-01,year,2009-07-01 00:05:00,True,False,False,False,False
+WILLHOV1,William Hovel,hydro,operating,2.0,1993-01-01,year,,True,False,False,False,False
+WKIEWA1,West Kiewa,hydro,operating,34.0,1955-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+WKIEWA2,West Kiewa,hydro,operating,34.0,1955-01-01,year,1998-12-07 06:35:00,True,False,False,False,False
+FNWF1,Ferguson,wind,operating,3.0,2020-01-01,year,,True,False,False,False,False
+FSWF1,Ferguson,wind,operating,7.0,2020-01-01,year,,True,False,False,False,False
+TOORAWF,Toora,wind,operating,21.0,2002-01-01,year,,True,False,False,False,False
+YAMBUKWF,Yambuk,wind,operating,30.0,2005-01-01,year,2009-07-01 00:05:00,True,False,False,False,False
