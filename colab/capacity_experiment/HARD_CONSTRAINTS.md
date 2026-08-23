@@ -203,7 +203,63 @@ both scorings (against the observable `nd` and against `SIGN . truth`) are repor
 
 ---
 
-## 7. Files
+## 7. Results
+
+300 three-day windows with a complete SOC-bracketed middle day; chronological tail split,
+test = 60 days, **2026-04-30 .. 2026-07-11**. One backbone per seed, 3 seeds, the head
+switched arm by arm so a row-to-row difference is the constraint and not a different init.
+Violation columns are MAGNITUDES (MW, MWh for SOC), worst over seeds and over every window
+-- not counts at a tolerance.
+
+| arm | microWAPE | MAE (MW) | macroR2 | balance | box | ramp | SOC |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| linear interpolation | 0.1671 | 134.63 | 0.211 | 2.9e+03 | 0 | 0 | 5.6e+03 |
+| persistence (prev day) | 0.2031 | 163.63 | 0.131 | 3.9e+03 | 0 | 9.2e+02 | 2.3e+03 |
+| interp + head (0 params) | 0.1359 | 109.51 | 0.080 | 4.9e-11 | 0 | 2.3e-13 | 3.0e-02 |
+| `none` (unconstrained net) | 0.1306 | 105.22 | 0.480 | 1.7e+03 | 3.4e+02 | 4.0e+01 | 4.0e+03 |
+| `+balance` | 0.1311 | 105.58 | 0.330 | **2.7e-12** | 3.9e+02 | 1.5e+02 | 5.2e+03 |
+| `+box` | 0.1113 | 89.68 | 0.513 | 2.7e-12 | **0** | 8.3e+01 | 6.6e+03 |
+| `+box C(t)` | 0.1113 | 89.68 | 0.513 | 2.7e-12 | **0** | 8.3e+01 | 6.6e+03 |
+| `+ramp k=1` | 0.1113 | 89.68 | 0.513 | 2.7e-12 | **0** | 3.9e+01 | 6.6e+03 |
+| `+ramp R(k)` | 0.1113 | 89.68 | 0.513 | 2.7e-12 | **0** | **1.1e-13** | 6.6e+03 |
+| **`+SOC` (the model)** | **0.1133** | **91.26** | 0.474 | **7.3e-11** | **0** | **3.4e-13** | **5.7e-14** |
+
+**The model is feasible on all four at machine precision and still beats every baseline**
+-- 32% below linear interpolation on MAE and 13% below the unconstrained network that has
+the same weights.
+
+What the ladder says, row by row:
+
+- **Balance is free.** 0.1306 -> 0.1311, inside the seed spread, and it removes a 1,700 MW
+  residual. Note this is against the *observable* `nd`, not the truth.
+- **The box is the big accuracy win, not a cost.** 0.1311 -> 0.1113, a 15% improvement,
+  because the unconstrained network spends error on outputs the fleet cannot produce.
+- **The ramp table is free and it is the only thing that closes the ramp gap.** Accuracy is
+  identical to four decimal places across `+box`, `+ramp k=1` and `+ramp R(k)`, while the
+  violation goes 83 MW -> 39 MW -> 1.1e-13 MW. A per-step limit leaves 39 MW of multi-step
+  violation standing; the table costs nothing to remove it.
+- **SOC is the only constraint with a measurable price**: 0.1113 -> 0.1133, +1.8%, to turn
+  a 6,600 MWh reservoir excursion into 5.7e-14. That is the honest trade, and it is small.
+- **The head is doing a lot of the work**, as the repo has found before: `interp + head`
+  with zero trained parameters scores 0.1359, better than the unconstrained network. The
+  trained backbone buys 18 MW of MAE on top of it.
+
+Two things this table does **not** show, stated rather than buried:
+
+- `+box C(t)` is identical to `+box`. The test slice is 2026-04-30..07-11, by which point
+  the battery fleet has reached its final size, so the monthly capacity and the static max
+  coincide *there*. Time-varying capacity matters for the training-era windows (the fleet
+  grew 2.2x across the span) and cannot be shown to matter by this split.
+- `macroWAPE` rises on the constrained arms while `microWAPE` falls. That is `gas_steam`,
+  which is zero 96% of the time, so its WAPE denominator is tiny and a few MW of projected
+  correction dominate the unweighted mean of ratios. `microWAPE` is the stable headline --
+  the same convention the rest of the repo uses.
+
+The feasibility floor (`exp7` check 4) is **0.000 MW on every channel**: the map applied to
+the recorded dispatch returns it unchanged. So none of the error above is the constraint
+set; all of it is the network.
+
+## 8. Files
 
 | file | what |
 | --- | --- |
@@ -213,7 +269,7 @@ both scorings (against the observable `nd` and against `SIGN . truth`) are repor
 | `exp7_head_audit.py` | the feasibility proof: non-emptiness, adversarial feasibility, idempotence, feasibility floor, an independent re-check, historical admissibility |
 | `exp8_constrained_imputer.py` | the model and the constraint ablation ladder |
 
-## 8. Reproduce
+## 9. Reproduce
 
 ```
 python colab/capacity_experiment/battery_reconstruct.py     # reservoir + loss model
