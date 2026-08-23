@@ -1,0 +1,27 @@
+# Python dependencies for energy_modelling
+#
+#   pip install -r requirements.txt
+#
+# Local modules (gap_data, pipeline, shift_model, constraints, ...) are not
+# listed here -- they live in this repo, not on PyPI.
+
+# --- core data / plotting ---
+numpy
+pandas
+matplotlib
+pyarrow          # backend for the .parquet files in data/
+
+# --- modelling ---
+torch            # ~2 GB download; used by ml/, planA/, planB/, imputation/
+scikit-learn
+
+# --- optimisation (RAYEN / projection layers) ---
+cvxpy
+scipy
+
+# --- data pulls ---
+requests         # script/pull_capacity_hist.py, OpenElectricity API
+
+# --- notebooks ---
+ipykernel
+jupyter
