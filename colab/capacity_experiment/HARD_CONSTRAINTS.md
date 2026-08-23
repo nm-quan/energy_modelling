@@ -1,0 +1,223 @@
+# Four hard constraints at once, on the whole-day gap
+
+Status 2026-08-23. Reproduce with the four commands at the bottom.
+Data: `data/updata` only, plus the interconnector series from `data/`.
+
+The task is imputation, not forecasting: a whole day (288 five-minute steps) of the VIC
+dispatchable fuel mix is missing. Demand, price, wind, solar, curtailment and
+interconnector flow are observed *through* the gap; the reservoir level is read at the two
+edges. Recover the dispatch so the result is feasible on all four constraints
+simultaneously:
+
+| | constraint | form | timesteps coupled |
+| --- | --- | --- | --- |
+| 1 | balance | `SIGN . P(t) = nd(t)` | 1 |
+| 2 | battery SOC | `E_min <= E(t) <= E_max`, `E` linear in `P` | all of them |
+| 3 | capacity | `P_min(t) <= P(t) <= P_max(t)`, monthly `C(t)` | 1 |
+| 4 | ramp table | `|P(t+k) - P(t)| <= R(k)` for **every** k | k+1 |
+
+---
+
+## 0. What was already here, and what was missing
+
+Three of the four were solved separately in `planB/heads.py`, on the older
+`data/preprocessed` tree. What was missing:
+
+- **SOC was not enforced.** `CONSTRAINT.md:46` says so outright. The swing form that
+  exists (`max E - min E <= cap`) never binds at any horizon — `hard_constraints_with_soc.md`
+  calls it "decoration".
+- **The ramp table was not hard.** `exp4` built `R(k)`, but only its `k=1` row reached
+  `hardnet`; the full table appeared as a soft penalty inside the QP.
+- **Capacity was static**, while the battery fleet grew 735 → 2,260 MW across the window.
+- **`nd` came from the truth.** `planB/PUBLICATION_REVIEW.md` measured the honest version
+  at a 3,272 MW residual, i.e. worse than linear interpolation.
+- And the projection **cost accuracy**: in `exp6` it moved microWAPE 0.2441 → 0.2638 and
+  gas_steam MAE 48.7 → 155.5 MW.
+
+---
+
+## 1. The one design decision everything else follows from
+
+**Carry the battery as a single signed channel `b = discharge − charge`.**
+
+The reservoir moves by `dE = contrib(b_t) + contrib(b_{t-1}) − draw`, where
+
+```
+contrib(b) = (eta*DT/2) * max(-b, 0)  -  (DT/(2*eta)) * max(b, 0)
+```
+
+is continuous, piecewise linear and **strictly decreasing** in `b` — slope `-eta*DT/2`
+below zero, `-DT/(2*eta)` above, and `eta < 1` makes the second steeper. A strictly
+decreasing function maps an interval to an interval, so
+
+```
+dE in [L, U]      <=>      b in [ contrib^-1(U) , contrib^-1(L) ]
+```
+
+The SOC constraint becomes an **exact box on one coordinate**, in closed form, with no
+conservatism. That is what keeps the per-step feasible set a *box intersected with a
+hyperplane* — the shape the closed-form projection needs.
+
+Carried as two non-negative channels it is not a box at all. The separable surrogate the
+repo uses today (`chg <= U/(eta*DT)` assuming `dis = 0`, and conversely) is simultaneously
+too loose to guarantee the reservoir and too tight to stay compatible with balance:
+measured on this task it overflows by **310–5,700 MWh**.
+
+Cost: the *simultaneous* charge/discharge overlap `m = min(chg, dis)` is not represented.
+Since `dE = dE(b) + m*(eta - 1/eta)*DT` and `eta < 1`, overlap can only lower `dE`, so it
+can never breach the binding (overflow) bound — it is recoverable as an extra clipped
+output if the per-channel battery error warrants it. Measured here, the feasibility floor
+(the map applied to the truth) is **0.000 MW** on every channel, so it does not.
+
+---
+
+## 2. The head
+
+One greedy forward sweep. Once `P[t-1], P[t-2], ...` are fixed, everything constraining
+step `t` collapses to an interval per channel:
+
+```
+lo[t] = max( P_min(t),  max_k (P[t-k] - R_dn(k)),  pR - R_up(N+1-t),  soc_lo[t] )
+hi[t] = min( P_max(t),  min_k (P[t-k] + R_up(k)),  pR + R_dn(N+1-t),  soc_hi[t] )
+P[t]  = argmin sum_i w_i (P_i - F_i)^2   s.t.  lo <= P <= hi,  SIGN . P = nd[t]
+      = clip(F + lam * SIGN/w, lo, hi)
+```
+
+**Why `[lo, hi]` is never empty.** Induction on `t`. The forward cone from `P[t-1]` and the
+backward cone to the pinned right endpoint intersect exactly when
+`R(m+1) <= R(m) + R(1)` — **subadditivity**, which `constraint_set.ramp_table` enforces by
+DP closure. Longer-`k` terms cannot empty it either: each is implied by the sum of the
+single steps it spans, again by subadditivity.
+
+**Why every `k`, not a subset.** With `k` in `{1,3,6,12,24,36}` and a linear seam guard
+`k*R(1)`, the induction breaks and the sweep violated ramps by up to **900 MW** under
+stress. With the full grid and the exact remaining distance `R(N+1-t)`, the worst violation
+over the same inputs is **1.1e-13 MW**.
+
+**Why the projection is weighted.** One scalar `lam` moves every free channel by the same
+number of MW, so a 510 MW peaker takes the same correction as a 5,095 MW coal fleet — the
+exp6 regression. `w = 1/softmax(logits)` makes the share channel `i` absorbs exactly `p_i`,
+and softmax is the right family because the balance identity forces those shares to sum to
+one.
+
+**Where SOC meets balance.** `SIGN` is all `+1`, so `b = nd − G` with `G` the thermal sum,
+and `G` is confined to its box. Balance alone therefore already confines
+`b in [nd − sum hi_th, nd − sum lo_th]`. Intersecting the SOC interval with *that*, before
+the projection runs, is what stops the two constraints fighting.
+
+---
+
+## 3. Two claims, and they are different
+
+**Balance, capacity and ramp are architectural.** The sweep only ever looks backward, or
+forward through a reachability guard that is exact, so they hold for *any* input —
+including a constant ±1e5. Worst violation over truth, truth+N(0,150), truth+N(0,1000),
+pure noise, an untrained network and both adversaries: **≤ 1.5e-6 MW**.
+
+**SOC is empirical.** The reservoir couples every step to every other, and a single
+forward sweep commits to `P[t]` before it has seen `t+1`; once the thermal channels are
+pinned against their ramp box the battery is *fully determined* by balance, with no freedom
+left. So SOC is restored by an iterative repair — alternate the sweep with a reservoir
+projection, then shrink the bounds by any residual excursion and re-solve. It is exact on
+everything a network can plausibly emit and degrades gracefully beyond.
+
+The map is **idempotent to 1.8e-11 MW** — the identity on an already-feasible trajectory,
+which is what makes the ablation below mean anything.
+
+---
+
+## 4. Why the empirical max, not p99.9
+
+The repo tightened its per-step ramp to a percentile because a single-step max is set by
+unit trips and is therefore inert. A *duration table* removes that reason:
+
+| | 15m | 60m | 180m | 1440m |
+| --- | ---: | ---: | ---: | ---: |
+| `R(k) / [k * R(1)]`, hydro | 0.529 | 0.150 | 0.065 | **0.008** |
+| coal_brown | 0.360 | 0.252 | 0.119 | **0.016** |
+| battery | 0.489 | 0.122 | 0.058 | **0.009** |
+
+Over a day the per-step box is **33–140× looser** than the real envelope, and the table
+recovers all of it while still admitting every recorded step. The percentile costs what the
+max does not — measured on real windows:
+
+| envelope | worst balance shortfall | recorded steps rejected |
+| --- | ---: | ---: |
+| p99.9 table | 443 MW | 0.19 % |
+| **empirical max table** | **0.00 MW** | **0.00 %** |
+
+At p99.9 "balance exact by construction" degrades to "exact except where the envelope
+forbids it". At the max it does not.
+
+## The inverse view — the ramp table as asked for
+
+Shortest time in which the fleet has ever moved a given fraction of installed capacity:
+
+| channel | 5% | 10% | 20% | 30% | 50% | 75% |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| hydro | 5 min | 5 min | 5 min | 5 min | 20 min | 195 min |
+| coal_brown | 5 min | 5 min | 30 min | 55 min | 350 min | never |
+| gas_steam | 5 min | 5 min | 5 min | 10 min | 20 min | 35 min |
+| gas_ocgt | 5 min | 10 min | 20 min | 45 min | 150 min | never |
+| battery | 5 min | 5 min | 5 min | 5 min | 10 min | 125 min |
+
+---
+
+## 5. The reservoir, measured rather than assumed
+
+Rebuilt from `vic_battery_power.csv` / `vic_battery_soc.csv` on a **fixed 12-unit set**
+(a fleet total is only well posed if membership is held constant, or a commissioning event
+reads as a reservoir jump). The fueltech rollup differs from this sum by std 56.7 MW and up
+to 470 MW, so the channels the model predicts had to be rebuilt to drive the reservoir
+whose level is measured.
+
+- `E_max` = **3,391 MWh** observed, against 4,735.75 MWh nameplate.
+- `eta` = **0.924** one-way plus a **222 MWh/day** standing draw. The two terms must be
+  fitted together — alone, each absorbs the other's mean, which is how the repo canon got
+  `eta_rt = 0.834` with one parameter doing two jobs.
+- **The level form binds, the swing form does not.** Over 268 clean days the median day
+  consumes **78.1 %** of its charging headroom (p90 94.3 %, >95 % on 8.6 % of days), while
+  the largest daily swing is 3,103 MWh against a 4,536 MWh swing budget.
+- **The floor carries a calibrated margin, the ceiling does not.** The recursion is open
+  loop, so it inherits a drift the telemetry does not have — up to 44 % of `E_max` over a
+  day. Enforcing a floor of exactly 0 would declare recorded dispatch infeasible, so the
+  floor is lowered to admit every recorded day and the amount is reported. The ceiling
+  needs no margin, and the ceiling is the side that binds.
+- **No terminal pin.** Landing on the measured right-edge level would need a ~950 MWh
+  tolerance on a 3,391 MWh reservoir — looser than the bounds themselves. The terminal
+  error is reported as a diagnostic instead.
+
+## 6. Balance on observables
+
+Every constrained model in this repo has been fed `nd = SIGN . truth`, which makes "balance
+exact by construction" a restatement of the answer. Fitted on `demand`, `wind`,
+`solar_utility` and `net_import`:
+
+| | out-of-sample MAE | std | max |
+| --- | ---: | ---: | ---: |
+| naive identity | 196.8 MW | 142.4 | 783.9 |
+| **fitted map** | **54.8 MW** | **71.9** | 478.8 |
+
+against a 4,579 MW level on the test gaps. The balance constraint is now a real one, and
+both scorings (against the observable `nd` and against `SIGN . truth`) are reported.
+
+---
+
+## 7. Files
+
+| file | what |
+| --- | --- |
+| `constraint_set.py` | the four constraints as data. `ramp_table` (max, monotone, subadditive closure), `capacity_bounds`, `Reservoir`, `fit_nd_map`. Imported by both the head and the scorer, so they cannot drift apart |
+| `battery_reconstruct.py` | channels + reservoir from per-unit telemetry; loss-model fit |
+| `head_traj.py` | `hardnet_traj` (single pass, differentiable — the training map) and `hardnet_traj_polished` (the deployed map) |
+| `exp7_head_audit.py` | the feasibility proof: non-emptiness, adversarial feasibility, idempotence, feasibility floor, an independent re-check, historical admissibility |
+| `exp8_constrained_imputer.py` | the model and the constraint ablation ladder |
+
+## 8. Reproduce
+
+```
+python colab/capacity_experiment/battery_reconstruct.py     # reservoir + loss model
+python colab/capacity_experiment/constraint_set.py          # the four constraints + checks
+python colab/capacity_experiment/exp7_head_audit.py         # the proof
+python colab/capacity_experiment/exp8_constrained_imputer.py   # model + ladder
+```

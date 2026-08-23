@@ -107,9 +107,6 @@ class SocTorch:
                               dtype=like.dtype)
         return cast(self.e_min), cast(self.e_max)
 
-    def _unused(self):
-        pass
-
     def contrib(self, b):
         return self.a * torch.clamp(-b, min=0.0) - self.b * torch.clamp(b, min=0.0)
 
@@ -139,8 +136,10 @@ class SocTorch:
         making room hours before the ceiling is reached. Clamping the rates at zero (the
         natural-looking "a rate cannot be negative") flattens the tube to a constant
         [E_min, E_max], which is exactly a guard that only objects once recovery is already
-        impossible. Measured, that is the difference between the reservoir holding to
-        1e-11 MWh and running 20,000 MWh over.
+        impossible. On THIS data the distinction turns out to be moot -- the thermal
+        channels are flexible enough that nothing is forced a priori and the tube stays
+        near-flat either way -- but the unclamped form is the correct one and it is what a
+        tighter fleet would need.
         """
         B, N = b_lo.shape
         emin, emax = self._bounds(b_lo)
@@ -211,11 +210,14 @@ def hardnet_traj(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
     # hope.
     ks = torch.arange(1, N + 1, device=dev).clamp(max=kcap)
     rk = torch.arange(N, 0, -1, device=dev).clamp(max=kcap)
-    ap_hi = torch.minimum(P_max, torch.minimum(pL.unsqueeze(1) + R_up[ks],
-                                               pR.unsqueeze(1) + R_dn[rk]))
-    ap_lo = torch.maximum(P_min, torch.maximum(pL.unsqueeze(1) - R_dn[ks],
-                                               pR.unsqueeze(1) - R_up[rk]))
-    ap_hi = torch.maximum(ap_hi, ap_lo)
+    if ramp_k == 0:                 # ramp OFF -- the a priori bounds are the box alone.
+        ap_lo, ap_hi = P_min, P_max      # (an ablation row must not get ramps by the back
+    else:                                #  door through the a priori bounds)
+        ap_hi = torch.minimum(P_max, torch.minimum(pL.unsqueeze(1) + R_up[ks],
+                                                   pR.unsqueeze(1) + R_dn[rk]))
+        ap_lo = torch.maximum(P_min, torch.maximum(pL.unsqueeze(1) - R_dn[ks],
+                                                   pR.unsqueeze(1) - R_up[rk]))
+        ap_hi = torch.maximum(ap_hi, ap_lo)
 
     e_lo = e_hi = None
     if soc is not None:
@@ -226,11 +228,17 @@ def hardnet_traj(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
         #     b(t) in [ nd(t) - sum ap_hi_th(t) ,  nd(t) - sum ap_lo_th(t) ]
         #
         # Intersecting that with the battery's own a priori box gives the range the
-        # reservoir will ACTUALLY be driven over. Building the tube from the battery's
-        # nameplate instead -- which is what a rate-based guard does -- makes it believe
-        # it can recharge at full power right up to the last step, so it permits the level
-        # to drift and only objects once recovery is already impossible. Measured, that is
-        # the difference between SOC holding to 1e-11 MWh and running ~1,000 MWh over.
+        # reservoir will ACTUALLY be driven over. A tube built from the battery's nameplate
+        # instead believes it can recharge at full power right up to the last step, which
+        # is strictly wrong whenever balance has already spoken for the battery.
+        #
+        # Stated plainly, because it bears on what this head does and does not guarantee:
+        # measured on this data the tube is NOT what makes SOC hold. The thermal channels
+        # are flexible enough that the balance-implied battery range is ~2,500 MW wide on
+        # average, so nothing is forced a priori and the tube stays near-flat. What drives
+        # the residual to zero is the shrink-and-retry loop in hardnet_traj_polished. The
+        # tube is kept because it is the correct bound and it costs O(N) -- not because it
+        # is carrying the result.
         th = [i for i in range(C) if i != batt_idx]
         G_lo = (ap_lo[..., th] * sign[th]).sum(-1)
         G_hi = (ap_hi[..., th] * sign[th]).sum(-1)
@@ -378,11 +386,14 @@ def hardnet_traj_polished(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
         ks = torch.arange(1, N + 1, device=dev).clamp(max=kcap)
         rk = torch.arange(N, 0, -1, device=dev).clamp(max=kcap)
         Ru, Rd = R_up.to(dev, dt), R_dn.to(dev, dt)
-        ap_hi = torch.minimum(P_max, torch.minimum(pL.unsqueeze(1) + Ru[ks],
-                                                   pR.unsqueeze(1) + Rd[rk]))
-        ap_lo = torch.maximum(P_min, torch.maximum(pL.unsqueeze(1) - Rd[ks],
-                                                   pR.unsqueeze(1) - Ru[rk]))
-        ap_hi = torch.maximum(ap_hi, ap_lo)
+        if ramp_k == 0:                 # ablation rows must not get ramps by the back door
+            ap_lo, ap_hi = P_min, P_max
+        else:
+            ap_hi = torch.minimum(P_max, torch.minimum(pL.unsqueeze(1) + Ru[ks],
+                                                       pR.unsqueeze(1) + Rd[rk]))
+            ap_lo = torch.maximum(P_min, torch.maximum(pL.unsqueeze(1) - Rd[ks],
+                                                       pR.unsqueeze(1) - Ru[rk]))
+            ap_hi = torch.maximum(ap_hi, ap_lo)
         C = pL.shape[-1]
         th = [i for i in range(C) if i != batt_idx]
         sg = sign.to(dev, dt)
