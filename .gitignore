@@ -20,3 +20,6 @@ ml/**/*_ckpt.pt
 
 # imputation pilot checkpoints (regenerable via imputation/train.py)
 
+
+# experiment run logs (regenerate with the exp*.py scripts)
+colab/capacity_experiment/*_run.log
