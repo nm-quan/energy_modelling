@@ -292,6 +292,9 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--polish", type=int, default=6)
+    ap.add_argument("--tag", default="",
+                    help="suffix on the results filename, so a 1-seed probe cannot "
+                         "overwrite the 3-seed table")
     a = ap.parse_args()
 
     cs = CS.build()
@@ -350,6 +353,7 @@ def main() -> None:
     print(f"({a.seeds} seed{'s' if a.seeds > 1 else ''}, mean +- half-range)")
     print("=" * 118)
     per_seed = {name: [] for name, _ in ARMS}
+    seed0 = {}
     for sd in range(a.seeds):
         t0 = time.time()
         model, scal, vbest = train_backbone(X, T, tr, va, sd, a.epochs, a.patience)
@@ -362,6 +366,8 @@ def main() -> None:
                 P, M = apply_head(raw, T, te, cs, res, polish=a.polish,
                                   **{k: v for k, v in kw.items() if k != "head"})
             per_seed[name].append(score(P, T, te, cs, res, M=M))
+            if sd == 0:
+                seed0[name] = CS.to_report(P, M)     # for the stacked figures
         print(f"    ladder done ({time.time() - t0:.0f}s)", flush=True)
 
     print("\n" + hdr)
@@ -397,8 +403,33 @@ def main() -> None:
             {c: s["per"][c]["MAE"] for c in CS.REPORT}
         print(f"  {k:16s}" + "".join(f"{pc[c]:13.1f}" for c in CS.REPORT))
 
-    (HERE / "exp8_constrained_results.json").write_text(json.dumps(results, indent=1))
-    print("\nwrote exp8_constrained_results.json")
+    out = HERE / f"exp8_constrained_results{a.tag}.json"
+    out.write_text(json.dumps(results, indent=1))
+
+    # ---- what the stacked figures need --------------------------------------------
+    # Whole 3-day windows in the 6 REPORTED channels, so a figure can draw the observed
+    # flanks either side of the imputed day and the seam between them is visible rather
+    # than asserted. `model` carries the recorded flanks with ONLY the middle day replaced
+    # -- that is what "imputed" means here, and drawing the model's own flanks instead
+    # would hide the one thing worth looking at.
+    R6all = cs["df"][CS.REPORT].values
+    dem = cs["df"]["demand"].values
+    win_actual = np.stack([R6all[recs[i]["i0"]:recs[i]["i0"] + W] for i in te])
+    win_demand = np.stack([dem[recs[i]["i0"]:recs[i]["i0"] + W] for i in te])
+    packs = {"actual": win_actual, "demand": win_demand,
+             "days": np.array([str(recs[i]["day"].date()) for i in te]),
+             "channels": np.array(CS.REPORT),
+             "nd_obs": T["nd_obs"][te], "nd_true": T["nd_tru"][te],
+             "gap": np.array([G0, G1]), "seed": np.array([0])}
+    for nm, gapfill in (("model", seed0.get("+SOC")), ("unconstrained", seed0.get("none")),
+                        ("interp", ref6["interp"]), ("persist", ref6["persist"])):
+        if gapfill is None:
+            continue
+        w = win_actual.copy()
+        w[:, G0:G1] = gapfill              # recorded flanks, imputed middle day
+        packs[nm] = w
+    np.savez_compressed(HERE / f"exp8_stack_data{a.tag}.npz", **packs)
+    print(f"\nwrote {out.name} and exp8_stack_data{a.tag}.npz")
 
 
 if __name__ == "__main__":
