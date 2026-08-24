@@ -90,7 +90,8 @@ def stack(ax, x, dat, ch, gap=None, nd=None, title="", label=True, legend=False)
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
     if legend:
-        ax.legend(loc="upper left", fontsize=6.5, ncol=4, framealpha=0.9)
+        ax.legend(loc="lower left", bbox_to_anchor=(0, 1.06), fontsize=6.5, ncol=7,
+                  frameon=False)
 
 
 def mae(a, b):
@@ -132,7 +133,7 @@ def fig_span(d, arms, out):
     g0, g1 = d["gap"]
     names = ["actual"] + list(arms)
     fig, axes = plt.subplots(len(names), 1, figsize=(13, 2.6 * len(names)), sharey=True,
-                             squeeze=False)
+                             sharex=True, squeeze=False)
     x = np.arange(d["actual"].shape[0])
     for r, nm in enumerate(names):
         day = d[nm][:, g0:g1].mean(axis=1)                          # (days, channels)
