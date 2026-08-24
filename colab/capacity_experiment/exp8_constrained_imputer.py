@@ -331,10 +331,11 @@ def main() -> None:
     print(hdr)
     for k in ("interp", "persist", "interp+head"):
         if k in ref6:
-            s = score(np.zeros((len(te), N, C)), T, te, cs, res, P6=ref6[k])
-            s["v"] = dict(balance_obs=float(np.abs(
-                (ref6[k][..., :C - 1].sum(-1) + ref6[k][..., -1] - ref6[k][..., -2])
-                - T["nd_obs"][te]).max()), box=0.0, ramp=0.0, soc=0.0)
+            # map the baseline back into the decision channels so it faces the SAME four
+            # checks as the model. Scoring a baseline's feasibility as 0 by not computing
+            # it would flatter every constrained arm in the table below it.
+            P, M = CS.from_report(ref6[k])
+            s = score(P, T, te, cs, res, M=M, P6=ref6[k])
         else:
             P, M = ref[k]
             s = score(P, T, te, cs, res, M=M)

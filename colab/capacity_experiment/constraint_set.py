@@ -363,6 +363,19 @@ def to_report(P: np.ndarray, M: np.ndarray | float = 0.0) -> np.ndarray:
     return np.concatenate([P[..., :BATT], chg[..., None], dis[..., None]], axis=-1)
 
 
+def from_report(R6: np.ndarray):
+    """(...,6) reported -> ((...,5) signed decision channels, (...) overlap).
+
+    The inverse of to_report: b = dis - chg carries everything balance, ramp and the
+    reservoir see, and m = min(chg, dis) is the rest. Lets a baseline expressed in the
+    reported channels -- interpolation, persistence -- be checked against the same four
+    constraints as the model instead of being given a free pass.
+    """
+    chg, dis = R6[..., 4], R6[..., 5]
+    P = np.concatenate([R6[..., :4], (dis - chg)[..., None]], axis=-1)
+    return P, np.minimum(chg, dis)
+
+
 def truth_report(df: pd.DataFrame) -> np.ndarray:
     """The 6 reported channels as RECORDED -- overlap included. This, not to_report(truth),
     is the reference an accuracy or feasibility-floor claim has to be made against; a

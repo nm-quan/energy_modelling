@@ -63,11 +63,57 @@ repo uses today (`chg <= U/(eta*DT)` assuming `dis = 0`, and conversely) is simu
 too loose to guarantee the reservoir and too tight to stay compatible with balance:
 measured on this task it overflows by **310–5,700 MWh**.
 
-Cost: the *simultaneous* charge/discharge overlap `m = min(chg, dis)` is not represented.
-Since `dE = dE(b) + m*(eta - 1/eta)*DT` and `eta < 1`, overlap can only lower `dE`, so it
-can never breach the binding (overflow) bound — it is recoverable as an extra clipped
-output if the per-channel battery error warrants it. Measured here, the feasibility floor
-(the map applied to the truth) is **0.000 MW** on every channel, so it does not.
+## 1b. What one signed channel cannot say, and how it is recovered
+
+`b` is everything the reservoir and the balance plane can see. It is not everything the
+fleet does. On **54% of intervals** some VIC batteries charge while others discharge, and
+the reported channels differ from the net view by the **overlap** `m = min(chg, dis)`:
+
+```
+battery_charging = m + max(-b, 0)        battery_discharging = m + max(b, 0)
+```
+
+Measured over the span: mean 6.3 MW, p99 101 MW, **max 454 MW**, holding **6.4%** of all
+discharge energy. A signed-only head pays that on both battery channels.
+
+**This was invisible to the first version of the audit, and the reason is worth stating.**
+`battery_reconstruct` aggregated the net and then clipped it, rather than aggregating each
+unit and summing — different numbers, and only the second is what the meters saw. The
+feasibility floor then compared the head's output against that same collapsed reference, so
+the overlap was missing from *both* sides and the battery columns read 0.000 whatever the
+head did. A check whose reference has been collapsed cannot detect a collapse.
+
+**The fix.** `m` is predicted alongside the dispatch and reattached by
+`head_traj.attach_overlap`. None of the four guarantees can be damaged by it, and each
+reason is structural:
+
+| | why m is safe |
+| --- | --- |
+| balance | `m` adds to **both** channels, so `b = dis - chg` is unchanged |
+| ramp | likewise — the table is defined on `b`, which `m` does not touch |
+| capacity | clipped so `m + max(-b,0) <= C` and `m + max(b,0) <= C` |
+| SOC | `eta < 1` makes overlap pure round-trip loss, so it only ever **lowers** the level, and the bound that binds on this fleet is the ceiling |
+
+Two details had to be right, and both were found by measurement rather than argument.
+
+**It runs as a separate pass on a settled trajectory.** Computed inside the sweep, `m`
+changes the SOC state, which moves `b`, which moves the balance correction: feeding the
+**truth** through that version walked the output **877 MW** away from itself. Run
+afterwards, `P` is bit-identical with the overlap on or off.
+
+**The SOC clip is a cumulative budget, not a per-step one.** Overlap is pure loss, so every
+MW lowers the level permanently; clipping only against the floor at the current step lets
+the level walk down until a later step goes under with `m = 0` there and nothing left to
+give back — measured, a **170 MWh** breach. Because the trajectory is settled the whole
+future is known, so the budget is exact. With `S_t` the cumulative overlap and
+`G(t) = (E_b(t) - floor)/delta`,
+
+```
+E(t) = E_b(t) - delta*( S_t + S_{t-1} + m_0 )   =>   S_t + S_{t-1} + m_0 <= G(t)  for all t
+```
+
+giving a cap for now and a suffix-minimum cap for every step after. It holds to
+**2e-11 MWh** against an adversarial `m = 1e5` request.
 
 ---
 
