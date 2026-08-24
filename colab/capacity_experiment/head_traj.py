@@ -107,8 +107,16 @@ class SocTorch:
                               dtype=like.dtype)
         return cast(self.e_min), cast(self.e_max)
 
-    def contrib(self, b):
-        return self.a * torch.clamp(-b, min=0.0) - self.b * torch.clamp(b, min=0.0)
+    @property
+    def delta(self):
+        """MWh burned per MW of overlap, per half step. Positive because eta < 1."""
+        return self.b - self.a
+
+    def contrib(self, b, m=0.0):
+        """Overlap is SUBTRACTED, so it can only lower the level -- which is what makes it
+        safe to attach after the fact: the binding bound here is the ceiling."""
+        return (self.a * torch.clamp(-b, min=0.0) - self.b * torch.clamp(b, min=0.0)
+                - self.delta * m)
 
     def contrib_inv(self, v):
         return torch.where(v >= 0.0, -v / self.a, -v / self.b)
@@ -167,19 +175,47 @@ class SocTorch:
         return (self.contrib_inv(e_hi_next - e_prev - k),
                 self.contrib_inv(e_lo_next - e_prev - k))
 
-    def advance(self, e_prev, b_prev, b):
-        return e_prev + self.contrib(b) + self.contrib(b_prev) - self.draw
+    def advance(self, e_prev, b_prev, b, m_prev=0.0, m=0.0):
+        return e_prev + self.contrib(b, m) + self.contrib(b_prev, m_prev) - self.draw
+
+    def overlap_budget(self, E_b, e_floor):
+        """(B,N) running budget on the CUMULATIVE overlap, from the m = 0 level path E_b.
+
+        A per-step check is not enough, and the failure is subtle. Overlap is pure loss, so
+        every MW of it lowers the level PERMANENTLY -- clip only against the floor at the
+        current step and the level walks down until some later step goes under with m = 0
+        there and nothing left to give back. Measured, that is a 170 MWh breach.
+
+        Because the trajectory is already settled when this runs, the whole future is known
+        and the budget can be written exactly. With S_t the cumulative overlap to step t,
+
+            E(t) = E_b(t) - delta * ( S_t + S_{t-1} + m_0 )
+
+        so E(t) >= floor for every t means, writing G(t) = (E_b(t) - floor)/delta,
+
+            S_t + S_{t-1} + m_0 <= G(t)          for all t
+
+        Two caps come out of that, and both are exact rather than conservative:
+          now     m_t <= G(t) - m_0 - 2 S_{t-1}
+          later   2 S_t + m_0 <= min_{u > t} G(u), since S is non-decreasing and choosing
+                  zero overlap from here on is always allowed
+        Returns G and its suffix minimum; the caller applies both.
+        """
+        G = (E_b - e_floor) / self.delta
+        Gmin = torch.flip(torch.cummin(torch.flip(G, [1]), dim=1).values, [1])
+        return G, Gmin
 
 
 def hardnet_traj(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
                  batt_idx: int = 4, soc: SocTorch | None = None, e0=None,
                  e_target=None, soc_tol: float = 0.0, alloc: bool = True,
                  ramp_k: int | None = None, w_override=None, return_debug: bool = False):
-    """raw (B,N,C) levels, or (B,N,2C) levels + allocation logits when `alloc`.
+    """raw (B,N,C) levels, (B,N,2C) + allocation logits, (B,N,2C+1) + an overlap logit.
 
     P_min/P_max (B,N,C) MW; R_up/R_dn (K+1,C) MW indexed by k; nd (B,N); pL/pR (B,C).
     `ramp_k` caps how many backward horizons are enforced (None = all, the guarantee).
-    Returns P (B,N,C) -- exactly feasible.
+    Returns P (B,N,C) -- exactly feasible. The overlap channel is attached afterwards by
+    attach_overlap(), which cannot move P.
     """
     dev, dt = raw.device, raw.dtype
     B, N, _ = raw.shape
@@ -308,6 +344,7 @@ def hardnet_traj(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
             hi = torch.cat([hi[:, :batt_idx], hi_b.unsqueeze(-1), hi[:, batt_idx + 1:]], -1)
 
         P_t = project_box_plane_w(F[:, t - 1], lo, hi, nd[:, t - 1], sign, W[:, t - 1])
+
         if soc is not None:
             E = soc.advance(E, b_prev, P_t[:, batt_idx])
             b_prev = P_t[:, batt_idx]
@@ -355,7 +392,8 @@ def hardnet_traj_polished(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
                           batt_idx: int = 4, soc: SocTorch | None = None, e0=None,
                           e_target=None, soc_tol: float = 0.0, alloc: bool = True,
                           ramp_k: int | None = None, polish: int = 6,
-                          shrink: int = 16, return_debug: bool = False):
+                          shrink: int = 16, overlap: bool = False, m_prev0=None,
+                          Rm_up=None, Rm_dn=None, return_debug: bool = False):
     """The deployed map: alternate the greedy sweep with the reservoir projection.
 
     WHY ONE PASS IS NOT ENOUGH, stated plainly. The greedy sweep commits to P[t] before it
@@ -478,6 +516,15 @@ def hardnet_traj_polished(raw, pL, pR, nd, P_min, P_max, R_up, R_dn, sign,
     dbg["soc_shrink_rounds"] = rounds
     dbg["soc_over"] = over
     dbg["soc_under"] = under
+
+    if overlap:
+        M, mdbg = attach_overlap(P, raw, P_min, P_max, soc, e0, pL[:, batt_idx],
+                                 m_prev0=m_prev0, Rm_up=Rm_up, Rm_dn=Rm_dn,
+                                 batt_idx=batt_idx, ramp_k=ramp_k, e_target=e_target,
+                                 soc_tol=soc_tol, nd=nd, sign=sign, R_up=R_up, R_dn=R_dn,
+                                 pL=pL, pR=pR)
+        dbg |= mdbg
+        return ((P, M), dbg) if return_debug else (P, M)
     return (P, dbg) if return_debug else P
 
 
@@ -488,3 +535,86 @@ def _levels(B, e0, b_prev, soc: SocTorch):
         out.append(E)
         prev = B[:, t]
     return torch.stack(out, 1)
+
+
+def attach_overlap(P, raw, P_min, P_max, soc, e0, b_prev0, m_prev0=None, Rm_up=None,
+                   Rm_dn=None, batt_idx: int = 4, ramp_k: int | None = None,
+                   e_target=None, soc_tol: float = 0.0, nd=None, sign=None,
+                   R_up=None, R_dn=None, pL=None, pR=None):
+    """The overlap channel, computed on a SETTLED trajectory. Never moves P.
+
+    `b` is everything the reservoir and the balance plane can see, but it is not everything
+    the fleet does. On 54% of intervals some units charge while others discharge, and the
+    reported channels differ from the net view by m = min(chg, dis) -- 6.1 MW MAE and up to
+    454 MW, invisible to any check whose reference has already been collapsed to the net.
+    So m is predicted separately and reattached:
+
+        battery_charging = m + max(-b, 0)        battery_discharging = m + max(b, 0)
+
+    IT CANNOT DAMAGE ANY OF THE FOUR GUARANTEES, and each reason is structural:
+
+      balance   m adds to BOTH channels, so b = dis - chg is unchanged
+      ramp      likewise -- the ramp table is defined on b, which m does not touch
+      SOC       m only ever LOWERS the level (eta < 1 makes the overlap pure round-trip
+                loss), so it is clipped against the FLOOR only, and the binding bound on
+                this fleet is the ceiling
+      capacity  clipped so m + max(-b,0) <= C and m + max(b,0) <= C
+
+    m = 0 sits inside that interval at every step, so switching the overlap on can never
+    make a feasible step infeasible -- which is also why this runs as a separate pass. Let
+    m feed back into the sweep and it changes the SOC state, which moves `b`, which moves
+    the balance correction: measured, that walked the projected TRUTH 877 MW away from
+    itself. Kept downstream, P is bit-identical with the overlap on or off.
+
+    m's own R(k) is enforced too, but it YIELDS to capacity and the reservoir floor, and
+    every yield is counted in `m_ramp_yield` rather than absorbed silently.
+    """
+    dev, dt = P.device, P.dtype
+    B, N, C = P.shape
+    m_raw = raw[..., 2 * C] if raw.shape[-1] > 2 * C else torch.zeros(B, N, device=dev,
+                                                                     dtype=dt)
+    kcap = (Rm_up.shape[0] - 1) if Rm_up is not None else N
+    m_prev0 = (torch.zeros(B, device=dev, dtype=dt) if m_prev0 is None
+               else m_prev0.to(dev, dt))
+    G = Gmin = None
+    if soc is not None:
+        # the level path this trajectory produces with NO overlap -- the reference the
+        # budget is measured against
+        E_b = _levels(P[..., batt_idx], e0, b_prev0, soc)
+        emin, _ = soc._bounds(E_b)
+        G, Gmin = soc.overlap_budget(E_b, emin)
+
+    m_prev = m_prev0.clone()
+    S = torch.zeros(B, device=dev, dtype=dt)      # cumulative overlap so far
+    hist, outs, yields = [m_prev], [], []
+    for t in range(N):
+        b_t = P[:, t, batt_idx]
+        cap_chg = (-P_min[:, t, batt_idx]).clamp_min(0.0)
+        cap_dis = P_max[:, t, batt_idx].clamp_min(0.0)
+        m_hi = torch.minimum(cap_chg - torch.clamp(-b_t, min=0.0),
+                             cap_dis - torch.clamp(b_t, min=0.0)).clamp_min(0.0)
+        if soc is not None:
+            now = G[:, t] - m_prev0 - 2.0 * S                       # the floor at step t
+            later = 0.5 * (Gmin[:, t] - m_prev0) - S                # every step after it
+            m_hi = torch.minimum(m_hi, torch.minimum(now, later).clamp_min(0.0))
+        m_lo = torch.zeros_like(m_hi)
+        if Rm_up is not None:
+            nb = len(hist) if ramp_k is None else min(len(hist), ramp_k)
+            if nb > 0:
+                mp = torch.stack(hist[:nb], dim=1)
+                dk = torch.arange(1, nb + 1, device=dev).clamp(max=kcap)
+                lo_r = (mp - Rm_dn.to(dev, dt)[dk]).amax(1).clamp_min(0.0)
+                hi_r = (mp + Rm_up.to(dev, dt)[dk]).amin(1)
+                yields.append(((lo_r > m_hi) | (hi_r < 0)).to(dt))
+                m_hi = torch.maximum(torch.minimum(m_hi, hi_r), torch.zeros_like(m_hi))
+                m_lo = torch.minimum(lo_r, m_hi)
+        m_t = torch.clamp(m_raw[:, t], m_lo, m_hi)      # MW, so an untrained net sits at 0
+        S = S + m_t
+        outs.append(m_t)
+        hist.insert(0, m_t)
+        b_prev, m_prev = b_t, m_t
+    M = torch.stack(outs, 1)
+    dbg = {"overlap": M}
+    if yields:
+        dbg["m_ramp_yield"] = torch.stack(yields, 1)
+    return M, dbg

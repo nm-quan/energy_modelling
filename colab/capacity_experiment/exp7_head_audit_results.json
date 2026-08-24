@@ -7,135 +7,144 @@
  },
  "feasibility": {
   "truth": {
-   "balance": 2.091837814077735e-11,
+   "balance": 1.9099388737231493e-11,
    "box_lo": 0.0,
    "box_hi": 0.0,
    "ramp": 0.0,
    "soc_over": 0.0,
    "soc_under": 0.0,
-   "soc_end_err": 467.396645574066
+   "soc_end_err": 434.04092453882106
   },
   "truth + N(0,150)": {
-   "balance": 9.094892448047176e-07,
-   "box_lo": 0.0,
-   "box_hi": 0.0,
-   "ramp": 4.547473508864641e-13,
-   "soc_over": 0.0,
-   "soc_under": 0.0,
-   "soc_end_err": 602.0315816476855
-  },
-  "truth + N(0,1000)": {
-   "balance": 1.1641204764600843e-06,
-   "box_lo": 0.0,
-   "box_hi": 0.0,
-   "ramp": 4.547473508864641e-13,
-   "soc_over": 1118.096074155142,
-   "soc_under": 0.0,
-   "soc_end_err": 3073.897753019927
-  },
-  "pure noise N(2000,2000)": {
-   "balance": 1.491552211518865e-06,
-   "box_lo": 0.0,
-   "box_hi": 0.0,
-   "ramp": 2.2737367544323206e-13,
-   "soc_over": 0.0,
-   "soc_under": 0.0,
-   "soc_end_err": 2131.897492781691
-  },
-  "untrained net (random w)": {
-   "balance": 1.382391928927973e-06,
-   "box_lo": 0.0,
-   "box_hi": 0.0,
-   "ramp": 4.547473508864641e-13,
-   "soc_over": 0.0,
-   "soc_under": 0.0,
-   "soc_end_err": 2724.3432515388463
-  },
-  "adversarial +1e5": {
-   "balance": 1.527912900201045e-06,
-   "box_lo": 0.0,
-   "box_hi": 0.0,
-   "ramp": 4.547473508864641e-13,
-   "soc_over": 285.6370043986685,
-   "soc_under": 0.0,
-   "soc_end_err": 3071.197961166429
-  },
-  "adversarial -1e5": {
-   "balance": 1.2369036994641647e-06,
+   "balance": 9.00399754755199e-11,
    "box_lo": 0.0,
    "box_hi": 0.0,
    "ramp": 3.410605131648481e-13,
-   "soc_over": 1029.2138482422483,
+   "soc_over": 0.0,
    "soc_under": 0.0,
-   "soc_end_err": 2643.943882295307
+   "soc_end_err": 849.2384569288274
+  },
+  "truth + N(0,1000)": {
+   "balance": 1.3823246263200417e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 3.410605131648481e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 3155.265832222769
+  },
+  "pure noise N(2000,2000)": {
+   "balance": 1.2005166354356334e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 3.410605131648481e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 2466.25751768259
+  },
+  "untrained net (random w)": {
+   "balance": 1.346027602266986e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 3.410605131648481e-13,
+   "soc_over": 0.0,
+   "soc_under": 3.981889843377928,
+   "soc_end_err": 2483.376657621396
+  },
+  "adversarial +1e5": {
+   "balance": 8.73099452292081e-07,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 3.410605131648481e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 2847.081826010092
+  },
+  "adversarial -1e5": {
+   "balance": 1.0731978363764938e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 2.8421709430404007e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 3097.3610938764673
   }
  },
- "worst_hard_mw": 1.527912900201045e-06,
- "worst_soc_plausible": 0.0,
- "worst_soc_all": 1118.096074155142,
- "idempotence_mw": 1.770771517614577e-11,
+ "worst_hard_mw": 1.3823246263200417e-06,
+ "worst_soc_plausible": 3.981889843377928,
+ "worst_soc_all": 3.981889843377928,
+ "idempotence_mw": 1.1425527191022411e-11,
  "floor": {
   "balance only": {
-   "all": 2.8569724075194156e-14,
-   "hydro": 5.1323058336973864e-14,
-   "coal_brown": 6.552783007565369e-15,
-   "gas_steam": 2.7879139326332458e-14,
-   "gas_ocgt": 3.458858713848386e-14,
-   "battery_charging": 2.5990851060870353e-14,
-   "battery_discharging": 2.5083925580938873e-14
+   "all": 2.29935312500002,
+   "hydro": 4.786231933546893e-14,
+   "coal_brown": 7.579122514774402e-15,
+   "gas_steam": 2.5347625233330805e-14,
+   "gas_ocgt": 3.2667695709026e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
   },
   "+ box (static cap)": {
-   "all": 2.8569724075194156e-14,
-   "hydro": 5.1323058336973864e-14,
-   "coal_brown": 6.552783007565369e-15,
-   "gas_steam": 2.7879139326332458e-14,
-   "gas_ocgt": 3.458858713848386e-14,
-   "battery_charging": 2.5990851060870353e-14,
-   "battery_discharging": 2.5083925580938873e-14
+   "all": 2.29935312500002,
+   "hydro": 4.786231933546893e-14,
+   "coal_brown": 7.579122514774402e-15,
+   "gas_steam": 2.5347625233330805e-14,
+   "gas_ocgt": 3.2667695709026e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
   },
   "+ box C(t)": {
-   "all": 2.865105797742737e-14,
-   "hydro": 5.134948395792458e-14,
-   "coal_brown": 6.789630586152069e-15,
-   "gas_steam": 2.784624382930653e-14,
-   "gas_ocgt": 3.4705777346638736e-14,
-   "battery_charging": 2.598017287414045e-14,
-   "battery_discharging": 2.5235039270401742e-14
+   "all": 2.29935312500002,
+   "hydro": 4.776363284439114e-14,
+   "coal_brown": 7.894919286223336e-15,
+   "gas_steam": 2.5169989549390784e-14,
+   "gas_ocgt": 3.2569009217948203e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
   },
   "+ ramp k=1": {
-   "all": 2.871023292888891e-14,
-   "hydro": 5.142821149167599e-14,
-   "coal_brown": 6.789630586152069e-15,
-   "gas_steam": 2.792519302216877e-14,
-   "gas_ocgt": 3.4784726539500975e-14,
-   "battery_charging": 2.6098596663433802e-14,
-   "battery_discharging": 2.5235039270401742e-14
+   "all": 2.29935312500002,
+   "hydro": 4.7684683651528906e-14,
+   "coal_brown": 7.737020900498868e-15,
+   "gas_steam": 2.509104035652855e-14,
+   "gas_ocgt": 3.249006002508597e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
   },
   "+ ramp table R(k)": {
-   "all": 2.871353854084591e-14,
-   "hydro": 5.1428307865202437e-14,
-   "coal_brown": 6.789630586152069e-15,
-   "gas_steam": 2.792519302216877e-14,
-   "gas_ocgt": 3.4784726539500975e-14,
-   "battery_charging": 2.611833396164936e-14,
-   "battery_discharging": 2.5235039270401742e-14
+   "all": 2.29935312500002,
+   "hydro": 4.7684683651528906e-14,
+   "coal_brown": 7.737020900498868e-15,
+   "gas_steam": 2.509104035652855e-14,
+   "gas_ocgt": 3.249006002508597e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
   },
-  "+ SOC  (the model)": {
-   "all": 8.639820621075039e-14,
-   "hydro": 1.9854825429888498e-13,
-   "coal_brown": 1.515035011026258e-13,
-   "gas_steam": 2.717511362970192e-14,
-   "gas_ocgt": 8.982796131124245e-14,
-   "battery_charging": 2.6098789410486685e-14,
-   "battery_discharging": 2.52356175115604e-14
+  "+ SOC": {
+   "all": 2.299353125000055,
+   "hydro": 1.241197225053238e-13,
+   "coal_brown": 8.242295734817162e-14,
+   "gas_steam": 2.4413353644645304e-14,
+   "gas_ocgt": 9.311196696169546e-14,
+   "battery_charging": 6.898059375000002,
+   "battery_discharging": 6.898059375000002
+  },
+  "+ SOC + overlap": {
+   "all": 6.290596741049971e-14,
+   "hydro": 1.241197225053238e-13,
+   "coal_brown": 8.242295734817162e-14,
+   "gas_steam": 2.4413353644645304e-14,
+   "gas_ocgt": 9.311196696169546e-14,
+   "battery_charging": 2.8456095504638924e-14,
+   "battery_discharging": 2.4911708498523113e-14
   }
  },
  "independent": {
-  "ramp": 4.547473508864641e-13
+  "ramp": 2.2737367544323206e-13
  },
  "admissibility": {
   "ramp_cells": 0,
   "cap_frac": 0.0006351878778602587
  },
- "verdict": true
+ "verdict": false
 }

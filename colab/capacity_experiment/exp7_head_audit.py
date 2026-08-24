@@ -29,7 +29,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import constraint_set as CS  # noqa: E402
-from head_traj import SocTorch, hardnet_traj, hardnet_traj_polished  # noqa: E402
+from head_traj import (SocTorch, hardnet_traj,  # noqa: E402
+                       hardnet_traj_polished)
 
 HERE = Path(__file__).resolve().parent
 TOL_MW = 1e-6
@@ -79,7 +80,13 @@ def pack(cs: dict, wins: list[dict], lift: bool = True):
     Pmax = np.stack([pmax[w["sl"]] for w in wins])
     e0 = np.array([w["e0"] for w in wins])
     eT = np.array([w["eT"] for w in wins])
-    return Y, pL, pR, Pmin, Pmax, e0, eT
+    # the RECORDED 6 channels and the recorded overlap. A floor test whose reference is
+    # to_report(truth) has already collapsed the overlap out of BOTH sides and cannot see
+    # it -- which is exactly how a 6 MW-per-channel representation gap went unmeasured.
+    R6 = np.stack([df[CS.REPORT].values[w["sl"]] for w in wins])
+    Mt = np.stack([df[CS.OVERLAP].values[w["sl"]] for w in wins])
+    mp = np.array([df[CS.OVERLAP].values[w["i0"]] for w in wins])
+    return Y, pL, pR, Pmin, Pmax, e0, eT, R6, Mt, mp
 
 
 def t64(a):
@@ -110,7 +117,8 @@ def violations(P, Y, pL, pR, Pmin, Pmax, nd, cs, res, e0, eT):
 
 
 def run_head(F, Y, pL, pR, Pmin, Pmax, nd, cs, res, e0, eT, soc=True, ramp_k=None,
-             alloc_logits=None, tv_cap=True, e_target=None, soc_tol=0.0, polish=6):
+             alloc_logits=None, tv_cap=True, e_target=None, soc_tol=0.0, polish=6,
+             overlap=None, m_prev=None, cs_ramp_m=None):
     """`e_target` is OFF by default. The reservoir recursion is open loop and drifts up to
     45% of E_max over 24 h (measured in check 7), so pinning the terminal level would need
     a ~950 MWh tolerance on a 3,391 MWh reservoir -- looser than the bounds themselves, and
@@ -119,23 +127,33 @@ def run_head(F, Y, pL, pR, Pmin, Pmax, nd, cs, res, e0, eT, soc=True, ramp_k=Non
     """One head call, numpy in / numpy out."""
     C = len(CS.CHANNELS)
     raw = t64(F)
-    if alloc_logits is not None:
-        raw = torch.cat([raw, t64(alloc_logits)], -1)
+    if alloc_logits is not None or overlap is not None:
+        z = np.zeros_like(F) if alloc_logits is None else alloc_logits
+        raw = torch.cat([raw, t64(z)], -1)
+    if overlap is not None:
+        raw = torch.cat([raw, t64(overlap)[..., None]], -1)
     Pmn, Pmx = Pmin, Pmax
     if not tv_cap:                       # static cap = the window-max, the old convention
         Pmn = np.broadcast_to(Pmin.min((0, 1)), Pmin.shape).copy()
         Pmx = np.broadcast_to(Pmax.max((0, 1)), Pmax.shape).copy()
     st = SocTorch(res.eta, res.draw, res.e_max, e_min=res.e_min) if soc else None
     shrink = 0 if polish <= 0 else 10
-    P = hardnet_traj_polished(raw, t64(pL), t64(pR), t64(nd), t64(Pmn), t64(Pmx),
+    ov = {}
+    if overlap is not None:
+        ov = dict(overlap=True, m_prev0=t64(m_prev),
+                  Rm_up=t64(cs_ramp_m[0]), Rm_dn=t64(cs_ramp_m[1]))
+    out = hardnet_traj_polished(raw, t64(pL), t64(pR), t64(nd), t64(Pmn), t64(Pmx),
                      t64(cs["R_up"]), t64(cs["R_dn"]), t64(CS.SIGN),
                      batt_idx=CS.BATT, soc=st,
                      e0=t64(e0) if soc else None,
-                     e_target=t64(eT) * 0 + t64(e_target) if (soc and e_target is not None) else None,
+                     e_target=t64(e_target) if (soc and e_target is not None) else None,
                      soc_tol=soc_tol,
                      alloc=alloc_logits is not None, ramp_k=ramp_k, polish=polish,
-                     shrink=shrink)
-    return P.numpy()
+                     shrink=shrink, **ov)
+    if overlap is not None:
+        P, M = out
+        return P.numpy(), M.numpy()
+    return out.numpy()
 
 
 def main() -> None:
@@ -150,7 +168,7 @@ def main() -> None:
     rng = np.random.default_rng(a.seed)
     pick = rng.choice(len(wins), size=min(a.windows, len(wins)), replace=False)
     sub = [wins[i] for i in sorted(pick)]
-    Y, pL, pR, Pmin, Pmax, e0, eT = pack(cs, sub)
+    Y, pL, pR, Pmin, Pmax, e0, eT, R6, Mt, mprev = pack(cs, sub)
     nd_true = (Y * CS.SIGN).sum(-1)
     B, N, C = Y.shape
     print(f"whole-day windows with both SOC edges: {len(wins)}   audited: {B}")
@@ -257,20 +275,31 @@ def main() -> None:
               ("+ box C(t)", dict(soc=False, ramp_k=0, tv_cap=True)),
               ("+ ramp k=1", dict(soc=False, ramp_k=1, tv_cap=True)),
               ("+ ramp table R(k)", dict(soc=False, ramp_k=None, tv_cap=True)),
-              ("+ SOC  (the model)", dict(soc=True, ramp_k=None, tv_cap=True))]
+              ("+ SOC", dict(soc=True, ramp_k=None, tv_cap=True))]
     print(f"  {'constraints':22s}{'all':>8s}" + "".join(f"{c[:9]:>11s}" for c in CS.REPORT))
     report["floor"] = {}
     for name, kw in ladder:
         P = run_head(Y, Y, pL, pR, Pmin, Pmax, nd_true, cs, res, e0, eT, **kw)
-        R6, Y6 = CS.to_report(P), CS.to_report(Y)
-        per = np.abs(R6 - Y6).mean((0, 1))
-        report["floor"][name] = dict(all=float(np.abs(R6 - Y6).mean()),
+        per = np.abs(CS.to_report(P) - R6).mean((0, 1))
+        report["floor"][name] = dict(all=float(np.abs(CS.to_report(P) - R6).mean()),
                                      **{c: float(x) for c, x in zip(CS.REPORT, per)})
-        print(f"  {name:22s}{np.abs(R6 - Y6).mean():8.3f}"
+        print(f"  {name:22s}{np.abs(CS.to_report(P) - R6).mean():8.3f}"
               + "".join(f"{x:11.3f}" for x in per))
-    print("\n  this is the error a PERFECT prediction still pays. It bounds every model")
-    print("  score below, and it is the only honest way to separate the cost of the")
-    print("  constraint from the failure of the network.")
+    Pm, M = run_head(Y, Y, pL, pR, Pmin, Pmax, nd_true, cs, res, e0, eT,
+                     soc=True, ramp_k=None, tv_cap=True, overlap=Mt, m_prev=mprev,
+                     cs_ramp_m=(cs["Rm_up"][:, 0], cs["Rm_dn"][:, 0]))
+    per = np.abs(CS.to_report(Pm, M) - R6).mean((0, 1))
+    report["floor"]["+ SOC + overlap"] = dict(
+        all=float(np.abs(CS.to_report(Pm, M) - R6).mean()),
+        **{c: float(x) for c, x in zip(CS.REPORT, per)})
+    print(f"  {'+ SOC + overlap':22s}{np.abs(CS.to_report(Pm, M) - R6).mean():8.3f}"
+          + "".join(f"{x:11.3f}" for x in per))
+    print("\n  measured against the RECORDED six channels, not against a reference that has\n"
+          "  itself been collapsed to the net -- the two differ by exactly the overlap, and\n"
+          "  a collapsed reference reports 0.000 on the battery columns whatever the head does.")
+    print("  Reading the last two rows: a signed-only head cannot represent simultaneous\n"
+          "  charge and discharge across the fleet and pays ~6 MW on each battery channel\n"
+          "  for it; with the overlap channel the floor returns to 0.")
 
     # -- 5. independent scorer ---------------------------------------------------------
     print("\n" + "=" * 100)

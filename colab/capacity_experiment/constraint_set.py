@@ -47,6 +47,11 @@ SIGN = np.array([1.0, 1.0, 1.0, 1.0, 1.0])          # battery is signed, so all 
 BATT = CHANNELS.index("battery")
 REPORT = ["hydro", "coal_brown", "gas_steam", "gas_ocgt",
           "battery_charging", "battery_discharging"]   # what accuracy is scored on
+# The reported battery channels are NOT a function of the signed one. Across the fleet,
+# some units charge while others discharge on 54% of intervals, and the two views differ by
+# the OVERLAP m = min(chg, dis). So the head carries `b` (which is all the reservoir sees)
+# and predicts `m` alongside it; REPORT is reconstructed from both. See to_report().
+OVERLAP = "battery_overlap"
 
 DT_H = 5.0 / 60.0
 STEPS_PER_DAY = 288
@@ -113,6 +118,10 @@ def load_table(dd: Path | None = None, root: Path | None = None) -> pd.DataFrame
     for ch in CHANNELS[:BATT]:
         df[ch] = w[ch].clip(lower=0.0)
     df["battery"] = bat["b_mw"]
+    # the TRUE reported channels, aggregated per unit -- not derived from the net
+    df["battery_charging"] = bat["battery_charging"]
+    df["battery_discharging"] = bat["battery_discharging"]
+    df[OVERLAP] = bat[OVERLAP]
     df["soc_mwh"] = bat["soc_mwh"]
     for col in ("wind", "solar_utility", "solar_rooftop"):
         df[col] = w[col]
@@ -131,7 +140,7 @@ def load_table(dd: Path | None = None, root: Path | None = None) -> pd.DataFrame
     cw.columns = [f"cap_{k}" for k in cw.columns]
     df = df.join(cw)
 
-    need = CHANNELS + OBSERVED + list(CAP_OF.values())
+    need = CHANNELS + REPORT[BATT:] + [OVERLAP] + OBSERVED + list(CAP_OF.values())
     keep = df[need].notna().all(axis=1)
     return df.loc[keep].sort_index()
 
@@ -237,10 +246,23 @@ class Reservoir:
         self.a = eta * dt_h / 2.0                 # MWh per MW of charge, half-step
         self.b = dt_h / (2.0 * eta)               # MWh per MW of discharge, half-step
 
-    def contrib(self, b):
-        """Half-step energy from signed power b. STRICTLY DECREASING in b -- the property
-        the whole reformulation rests on (slope -a below 0, -b above, and a < b)."""
-        return self.a * np.maximum(-b, 0.0) - self.b * np.maximum(b, 0.0)
+    @property
+    def delta(self):
+        """MWh burned per MW of OVERLAP, per half step. Positive because eta < 1: pushing
+        m MW through the fleet in both directions at once charges m*a and discharges m*b,
+        netting -m*(b - a) -- pure round-trip loss, no change in net power."""
+        return self.b - self.a
+
+    def contrib(self, b, m=0.0):
+        """Half-step energy from signed power b (and overlap m). STRICTLY DECREASING in b --
+        the property the whole reformulation rests on (slope -a below 0, -b above, a < b).
+
+        The overlap term is subtracted, so m can only LOWER the level. That is what makes
+        the overlap safe to bolt on afterwards: the binding SOC bound here is the ceiling
+        (the median day uses 78% of its charging headroom and the floor never binds), and
+        nothing that only lowers the level can breach a ceiling."""
+        return (self.a * np.maximum(-b, 0.0) - self.b * np.maximum(b, 0.0)
+                - self.delta * m)
 
     def contrib_inv(self, v):
         """The inverse. Decreasing, so it maps [lo,hi] to [inv(hi), inv(lo)]."""
@@ -277,19 +299,21 @@ class Reservoir:
         hi_v = e_hi_next - e_prev - k
         return self.contrib_inv(hi_v), self.contrib_inv(lo_v)
 
-    def advance(self, e_prev, b_prev, b):
-        return e_prev + self.contrib(b) + self.contrib(b_prev) - self.draw
+    def advance(self, e_prev, b_prev, b, m_prev=0.0, m=0.0):
+        return (e_prev + self.contrib(b, m) + self.contrib(b_prev, m_prev) - self.draw)
 
-    def trajectory(self, B: np.ndarray, e0, b_prev):
+    def trajectory(self, B: np.ndarray, e0, b_prev, M=None, m_prev=0.0):
         """(T,) or (B,T) levels from a signed-power path, for scoring."""
         B = np.asarray(B, dtype=float)
+        M = np.zeros_like(B) if M is None else np.asarray(M, dtype=float)
         prev = np.broadcast_to(np.asarray(b_prev, dtype=float), B.shape[:-1])
+        mprev = np.broadcast_to(np.asarray(m_prev, dtype=float), B.shape[:-1])
         e = np.broadcast_to(np.asarray(e0, dtype=float), B.shape[:-1]).astype(float).copy()
         out = np.empty_like(B)
         for t in range(B.shape[-1]):
-            e = self.advance(e, prev, B[..., t])
+            e = self.advance(e, prev, B[..., t], mprev, M[..., t])
             out[..., t] = e
-            prev = B[..., t]
+            prev, mprev = B[..., t], M[..., t]
         return out
 
 
@@ -322,15 +346,28 @@ def nd_truth(df: pd.DataFrame) -> np.ndarray:
     return (df[CHANNELS].values * SIGN).sum(-1)
 
 
-def split_battery(B: np.ndarray):
-    """Signed b -> (charging, discharging), the deterministic post-map."""
-    return np.maximum(-B, 0.0), np.maximum(B, 0.0)
+def split_battery(B: np.ndarray, M: np.ndarray | float = 0.0):
+    """Signed b (+ overlap m) -> (charging, discharging).
+
+        chg = m + max(-b, 0)        dis = m + max(b, 0)
+
+    m = 0 recovers the net-only view, which is what a single signed channel can express and
+    is wrong by exactly m on both channels.
+    """
+    return M + np.maximum(-B, 0.0), M + np.maximum(B, 0.0)
 
 
-def to_report(P: np.ndarray) -> np.ndarray:
-    """(..., 5) signed -> (..., 6) in REPORT order, for scoring against the truth."""
-    chg, dis = split_battery(P[..., BATT])
+def to_report(P: np.ndarray, M: np.ndarray | float = 0.0) -> np.ndarray:
+    """(..., 5) signed [+ (...,) overlap] -> (..., 6) in REPORT order, for scoring."""
+    chg, dis = split_battery(P[..., BATT], M)
     return np.concatenate([P[..., :BATT], chg[..., None], dis[..., None]], axis=-1)
+
+
+def truth_report(df: pd.DataFrame) -> np.ndarray:
+    """The 6 reported channels as RECORDED -- overlap included. This, not to_report(truth),
+    is the reference an accuracy or feasibility-floor claim has to be made against; a
+    reference built by collapsing the truth is blind to the very thing being tested."""
+    return df[REPORT].values
 
 
 def calibrate_floor(df: pd.DataFrame, res: "Reservoir", round_to: float = 10.0) -> float:
@@ -373,11 +410,14 @@ def build(dd: Path | None = None, root: Path | None = None, kmax: int = STEPS_PE
     seg = segments(df.index)
     ru, rd = ramp_table(df[CHANNELS].values, seg, kmax=kmax)
     bat = load_units(dd or data_dir())
+    # the overlap gets its own R(k), on the same footing as the dispatch channels -- it is
+    # a physical MW quantity with its own dynamics, not a free residual
+    rmu, rmd = ramp_table(df[[OVERLAP]].values, seg, kmax=kmax)
     eta, draw, _ = fit_loss(bat)
     res = Reservoir(eta, draw, reservoir_max(bat))
     res.e_min = calibrate_floor(df, res)
     train = np.asarray(df.index <= pd.Timestamp(train_end))
-    return dict(df=df, seg=seg, R_up=ru, R_dn=rd, res=res,
+    return dict(df=df, seg=seg, R_up=ru, R_dn=rd, Rm_up=rmu, Rm_dn=rmd, res=res,
                 nd_coef=fit_nd_map(df, train), train_mask=train)
 
 

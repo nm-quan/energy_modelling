@@ -46,11 +46,28 @@ FIT_SINCE = "2025-10-01"
 
 
 def load_units(dd: Path | None = None, units: list[str] | None = None) -> pd.DataFrame:
-    """5-min frame: b_mw (signed, + = discharge), battery_charging, battery_discharging,
-    soc_mwh (aggregate over `units`, NaN unless EVERY unit reports).
+    """5-min frame: b_mw, battery_charging, battery_discharging, battery_overlap, soc_mwh.
 
-    The all-or-nothing rule on soc_mwh is deliberate. A partial sum silently changes the
-    reservoir's size, which is exactly the failure mode this module exists to avoid.
+    THE CHANNELS ARE AGGREGATED PER UNIT, NOT FROM THE NET. Those are different numbers.
+    On 54% of intervals some units in the fleet charge while others discharge, so
+
+        battery_charging     = sum_u max(-p_u, 0)          NOT max(-sum_u p_u, 0)
+        battery_discharging  = sum_u max( p_u, 0)          NOT max( sum_u p_u, 0)
+
+    and the two differ by exactly the OVERLAP m = min(chg, dis): chg = max(-b,0) + m and
+    dis = max(b,0) + m. Measured over the span, m averages 6.3 MW, reaches 454 MW, and
+    holds 6.4% of all discharge energy. Collapsing it away is a real loss of information
+    about the fleet, and it is invisible to any check whose reference has already been
+    collapsed.
+
+    It is NOT a loss for the reservoir. The tank responds only to the net, so `b_mw` alone
+    drives the SOC dynamics exactly. The overlap costs round-trip losses and nothing else,
+    which is why the constraint layer can carry `b` as its decision variable and reattach
+    `m` afterwards.
+
+    The all-or-nothing rule on the sums is deliberate. A partial sum silently changes both
+    the fleet and the reservoir's size, which is the failure mode this module exists to
+    avoid.
     """
     dd = dd or data_dir()
     units = list(units or STABLE_UNITS)
@@ -68,13 +85,19 @@ def load_units(dd: Path | None = None, units: list[str] | None = None) -> pd.Dat
     if missing:
         raise KeyError(f"units absent from the telemetry: {sorted(set(missing))}")
 
-    b = pw[[f"{u}_mw" for u in units]].sum(axis=1, min_count=len(units))
+    U = pw[[f"{u}_mw" for u in units]]
+    full = U.notna().all(axis=1)
+    b = U.sum(axis=1).where(full)
+    chg = (-U).clip(lower=0.0).sum(axis=1).where(full)
+    dis = U.clip(lower=0.0).sum(axis=1).where(full)
     e = soc[[f"{u}_mwh" for u in units]].sum(axis=1, min_count=len(units))
 
-    out = pd.DataFrame({"b_mw": b}).join(e.rename("soc_mwh"), how="outer").sort_index()
-    out["battery_charging"] = (-out["b_mw"]).clip(lower=0.0)
-    out["battery_discharging"] = out["b_mw"].clip(lower=0.0)
-    return out[["b_mw", "battery_charging", "battery_discharging", "soc_mwh"]]
+    out = pd.DataFrame({"b_mw": b, "battery_charging": chg,
+                        "battery_discharging": dis}).join(e.rename("soc_mwh"), how="outer")
+    out["battery_overlap"] = np.minimum(out["battery_charging"],
+                                        out["battery_discharging"])
+    return out[["b_mw", "battery_charging", "battery_discharging",
+                "battery_overlap", "soc_mwh"]].sort_index()
 
 
 def reservoir_max(bat: pd.DataFrame, quantile: float | None = None) -> float:
@@ -182,6 +205,17 @@ def main() -> None:
     print(f"\nfueltech rollup minus this 12-unit sum: mean {diff.mean():.1f}  "
           f"std {diff.std():.1f}  max |.| {diff.abs().max():.1f} MW  "
           f"-- the reason the channels are rebuilt")
+
+    m = bat["battery_overlap"].dropna()
+    print(f"\nsimultaneous charge AND discharge across the fleet (the overlap m):")
+    print(f"  present on {100 * (m > 1).mean():.1f}% of intervals (>1 MW), "
+          f"{100 * (m > 20).mean():.1f}% above 20 MW")
+    print(f"  mean {m.mean():.1f}  p90 {m.quantile(.9):.1f}  p99 {m.quantile(.99):.1f}  "
+          f"max {m.max():.1f} MW")
+    print(f"  holds {100 * m.sum() / bat['battery_discharging'].sum():.1f}% of all "
+          f"discharge energy")
+    print("  a single signed channel cannot represent this, so the head predicts it as a\n"
+          "  separate output and reattaches it -- see head_traj.hardnet_traj(overlap=True)")
 
 
 if __name__ == "__main__":
