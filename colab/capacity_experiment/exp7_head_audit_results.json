@@ -1,0 +1,150 @@
+{
+ "non_emptiness": {
+  "sub_up": 0,
+  "sub_dn": 0,
+  "monotone": 0,
+  "bad_bridge": 0
+ },
+ "feasibility": {
+  "truth": {
+   "balance": 2.091837814077735e-11,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 0.0,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 467.396645574066
+  },
+  "truth + N(0,150)": {
+   "balance": 9.094892448047176e-07,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 4.547473508864641e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 602.0315816476855
+  },
+  "truth + N(0,1000)": {
+   "balance": 1.1641204764600843e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 4.547473508864641e-13,
+   "soc_over": 1118.096074155142,
+   "soc_under": 0.0,
+   "soc_end_err": 3073.897753019927
+  },
+  "pure noise N(2000,2000)": {
+   "balance": 1.491552211518865e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 2.2737367544323206e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 2131.897492781691
+  },
+  "untrained net (random w)": {
+   "balance": 1.382391928927973e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 4.547473508864641e-13,
+   "soc_over": 0.0,
+   "soc_under": 0.0,
+   "soc_end_err": 2724.3432515388463
+  },
+  "adversarial +1e5": {
+   "balance": 1.527912900201045e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 4.547473508864641e-13,
+   "soc_over": 285.6370043986685,
+   "soc_under": 0.0,
+   "soc_end_err": 3071.197961166429
+  },
+  "adversarial -1e5": {
+   "balance": 1.2369036994641647e-06,
+   "box_lo": 0.0,
+   "box_hi": 0.0,
+   "ramp": 3.410605131648481e-13,
+   "soc_over": 1029.2138482422483,
+   "soc_under": 0.0,
+   "soc_end_err": 2643.943882295307
+  }
+ },
+ "worst_hard_mw": 1.527912900201045e-06,
+ "worst_soc_plausible": 0.0,
+ "worst_soc_all": 1118.096074155142,
+ "idempotence_mw": 1.770771517614577e-11,
+ "floor": {
+  "balance only": {
+   "all": 2.1183831365740953,
+   "hydro": 5.120443216327498e-14,
+   "coal_brown": 6.552783007565369e-15,
+   "gas_steam": 2.7760715537039112e-14,
+   "gas_ocgt": 3.447016334919052e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ box (static cap)": {
+   "all": 2.1183831365740953,
+   "hydro": 5.120443216327498e-14,
+   "coal_brown": 6.552783007565369e-15,
+   "gas_steam": 2.7760715537039112e-14,
+   "gas_ocgt": 3.447016334919052e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ box C(t)": {
+   "all": 2.1183831365740953,
+   "hydro": 5.134948395792458e-14,
+   "coal_brown": 6.789630586152069e-15,
+   "gas_steam": 2.784624382930653e-14,
+   "gas_ocgt": 3.4705777346638736e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ ramp k=1": {
+   "all": 2.1183831365740953,
+   "hydro": 5.142821149167599e-14,
+   "coal_brown": 6.789630586152069e-15,
+   "gas_steam": 2.792519302216877e-14,
+   "gas_ocgt": 3.4784726539500975e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ ramp table R(k)": {
+   "all": 2.1183831365740953,
+   "hydro": 5.1428307865202437e-14,
+   "coal_brown": 6.789630586152069e-15,
+   "gas_steam": 2.792519302216877e-14,
+   "gas_ocgt": 3.4784726539500975e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ SOC": {
+   "all": 2.118383136574153,
+   "hydro": 1.9854825429888498e-13,
+   "coal_brown": 1.515035011026258e-13,
+   "gas_steam": 2.717511362970192e-14,
+   "gas_ocgt": 8.982796131124245e-14,
+   "battery_charging": 6.355149409722225,
+   "battery_discharging": 6.355149409722224
+  },
+  "+ SOC + overlap": {
+   "all": 8.755777448869624e-14,
+   "hydro": 1.9854825429888498e-13,
+   "coal_brown": 1.515035011026258e-13,
+   "gas_steam": 2.717511362970192e-14,
+   "gas_ocgt": 8.982796131124245e-14,
+   "battery_charging": 2.883891042637643e-14,
+   "battery_discharging": 2.945290616334578e-14
+  }
+ },
+ "independent": {
+  "ramp": 4.547473508864641e-13
+ },
+ "admissibility": {
+  "ramp_cells": 0,
+  "cap_frac": 0.0006351878778602587
+ },
+ "verdict": true
+}
