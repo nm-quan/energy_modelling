@@ -23,3 +23,4 @@ ml/**/*_ckpt.pt
 
 # experiment run logs (regenerate with the exp*.py scripts)
 colab/capacity_experiment/*_run.log
+colab/capacity_experiment/exp10_*.log
